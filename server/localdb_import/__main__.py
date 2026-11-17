@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import tempfile
 from pathlib import Path
 
-from engine import EngineError, open_database
+from engine import EngineError, open_database, snapshot
 from server.localdb_import.importer import Decisions, run
 from server.localdb_import.report import as_text
 from server.localdb_import.source import DATABASE_FILE
@@ -80,27 +81,36 @@ def _target(target: str | None, apply: bool, scratch: Path) -> str:
         return target
     copy = scratch / "localai.sqlite3"
     if target and Path(target).exists():
-        source = sqlite3.connect(f"file:{Path(target).resolve()}?mode=ro", uri=True)
         try:
-            with sqlite3.connect(copy) as destination:
-                source.backup(destination)
-        finally:
-            source.close()
+            snapshot.copy_untouched(Path(target), copy)
+        except sqlite3.Error as error:
+            raise EngineError(
+                "target_unreadable", f"Не удалось прочитать базу LOCALAI {target}: {error}"
+            ) from error
     return str(copy)
 
 
 def _touches_databases(report: Path, source: str, target: str | None) -> bool:
-    """Путь отчёта совпадает с файлом базы или её служебным файлом."""
+    """Отчёт попал бы в файл базы или её служебный файл.
+
+    Сравниваются и пути, и сами файлы: жёсткая ссылка или другое имя того же
+    файла тоже считается совпадением.
+    """
+    if report.exists() and report.is_dir():
+        return True
     bases = [Path(source)]
     if Path(source).is_dir():
         bases.append(Path(source) / DATABASE_FILE)
     if target:
         bases.append(Path(target))
-    taken = set()
     for base in bases:
         for suffix in ("", "-wal", "-shm"):
-            taken.add(base.with_name(base.name + suffix).resolve())
-    return report.resolve() in taken or (report.exists() and report.resolve().is_dir())
+            taken = base.with_name(base.name + suffix)
+            if report.resolve() == taken.resolve():
+                return True
+            if report.exists() and taken.exists() and os.path.samefile(report, taken):
+                return True
+    return False
 
 
 if __name__ == "__main__":

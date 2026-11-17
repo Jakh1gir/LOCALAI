@@ -52,7 +52,7 @@ def coerce_scalar(kind: str, value: Any, field: str) -> Any:
 
 
 def _text(value: Any, field: str) -> str | None:
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+    if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
         raise EngineError("value_text", "Ожидается текст", field=field)
     shown = str(value).strip()
     if len(shown) > MAX_TEXT:
@@ -63,7 +63,11 @@ def _text(value: Any, field: str) -> str | None:
 def _integer(value: Any, field: str) -> int:
     if isinstance(value, bool):
         raise EngineError("value_integer", "Ожидается целое число", field=field)
-    if isinstance(value, float) and value.is_integer():
+    if isinstance(value, Decimal):  # число из тела запроса без округления
+        if not value.is_finite() or value != value.to_integral_value():
+            raise EngineError("value_integer", "Ожидается целое число", field=field)
+        value = int(value)
+    elif isinstance(value, float) and value.is_integer():
         value = int(value)
     if isinstance(value, str):
         cleaned = _no_spaces(value)
@@ -78,6 +82,8 @@ def _number(value: Any, field: str) -> int | float:
     """Число без потери точности: целое — точно, дробное — если хватает 15 знаков."""
     if isinstance(value, bool):
         raise EngineError("value_number", "Ожидается число", field=field)
+    if isinstance(value, Decimal):  # число из тела запроса без округления
+        value = format(value, "f") if value.is_finite() else "не число"
     if isinstance(value, str):
         cleaned = _no_spaces(value).replace(",", ".")
         if _INTEGER_TEXT.match(cleaned):
@@ -87,6 +93,8 @@ def _number(value: Any, field: str) -> int | float:
             value = float(cleaned)
         except (InvalidOperation, ValueError):
             raise EngineError("value_number", "Ожидается число", field=field) from None
+        if exact == exact.to_integral_value() and math.isfinite(value):
+            return _in_range(int(exact), field)
         if math.isfinite(value) and Decimal(repr(value)).normalize() != exact.normalize():
             raise EngineError(
                 "value_precision",
@@ -243,7 +251,7 @@ class Normalizer:
                     field=field.key,
                 )
             return raw["id"]
-        if not isinstance(raw, (str, int, float)) or isinstance(raw, bool):
+        if not isinstance(raw, (str, int, float, Decimal)) or isinstance(raw, bool):
             raise EngineError("value_choice", "Ожидается значение справочника", field=field.key)
         shown = text.clean_name(str(raw), "Значение", structure.MAX_VALUE)
         value_id = values["by_name"].get(text.norm_name(shown))

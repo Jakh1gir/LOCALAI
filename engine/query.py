@@ -16,7 +16,7 @@ from typing import Any
 
 from engine import fulltext, kks, structure, text
 from engine.errors import EngineError
-from engine.validation import coerce_scalar, load_dictionary
+from engine.validation import MAX_INT, MIN_INT, coerce_scalar, load_dictionary
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
@@ -42,6 +42,7 @@ class _Compiled:
     sort_sql: str = "seq"
     descending: bool = False
     sort_tag: str = "seq"
+    group_index: str | None = None  # индекс поля для остатка группы равных значений
 
 
 def list_records(
@@ -53,20 +54,28 @@ def list_records(
     schema = structure.load_schema(conn, dataset["type_id"])
     compiled = _compile(conn, dataset, schema, query)
     limit = _limit(query.get("limit"))
-    segments: list[tuple[str | None, list[Any]]] = [(None, [])]
+    segments: list[tuple[str | None, list[Any], bool]] = [(None, [], False)]
     if query.get("cursor"):
         segments = _after_cursor(compiled, query["cursor"])
     way = "DESC" if compiled.descending else "ASC"
     rows: list[sqlite3.Row] = []
-    for condition, extra in segments:
+    for condition, extra, group in segments:
         wanted = limit + 1 - len(rows)
         if wanted <= 0:
             break
         where = [*compiled.where, *([condition] if condition else [])]
+        # Внутри группы равных значений порядок задаёт только seq. SQLite сам
+        # выбирает здесь обход таблицы по seq с досортировкой, поэтому индекс
+        # поля указывается явно: он ведёт сразу к месту курсора в группе.
+        source = "records"
+        order = f"sort_value {way}, seq {way}"
+        if group:
+            order = f"seq {way}"
+            if compiled.group_index:
+                source = f"records INDEXED BY {compiled.group_index}"
         rows += conn.execute(
-            f"SELECT {_COLUMNS}, {compiled.sort_sql} AS sort_value FROM records"
-            f" WHERE {' AND '.join(where)}"
-            f" ORDER BY sort_value {way}, seq {way} LIMIT ?",
+            f"SELECT {_COLUMNS}, {compiled.sort_sql} AS sort_value FROM {source}"
+            f" WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?",
             (*compiled.params, *extra, wanted),
         ).fetchall()
     page = rows[:limit]
@@ -126,6 +135,8 @@ def _compile(
             out.where.append(found[0])
             out.params.extend(found[1])
     _sort(schema, query.get("sort"), out)
+    if out.group_index and not (archived is False and _index_exists(conn, out.group_index)):
+        out.group_index = None  # частичный индекс покрывает только действующие записи
     return out
 
 
@@ -310,6 +321,7 @@ def _sort(schema: structure.TypeSchema, sort: Any, out: _Compiled) -> None:
         out.sort_sql = f"(SELECT code_norm FROM kks_objects WHERE id = {expr})"
     else:
         out.sort_sql = expr
+        out.group_index = structure.index_name(found.key)
 
 
 # Курсор -----------------------------------------------------------------------
@@ -320,35 +332,56 @@ def _encode_cursor(tag: str, value: Any, seq: int) -> str:
     return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
 
-def _after_cursor(compiled: _Compiled, cursor: Any) -> list[tuple[str | None, list[Any]]]:
+def _after_cursor(compiled: _Compiled, cursor: Any) -> list[tuple[str | None, list[Any], bool]]:
     """Условия для строк после курсора — по частям, в порядке выдачи.
 
     Пустые значения идут первыми при ``asc`` и последними при ``desc``.
-    Строки с пустым и непустым значением запрашиваются отдельно: так каждая
-    часть сразу встаёт по индексу на место курсора, а не перебирает
-    уже пройденные строки (API-05).
+    Каждая часть сразу встаёт по индексу на место курсора, а не перебирает
+    пройденные строки (API-05): остаток группы с тем же значением ищется по
+    равенству значения и диапазону ``seq``, а следующие значения — по
+    диапазону значения.
     """
+    value, seq = _decode_cursor(compiled, cursor)
+    expr = compiled.sort_sql
+    if expr == "seq":
+        return [("seq < ?" if compiled.descending else "seq > ?", [seq], False)]
+    if compiled.descending:
+        if value is None:
+            return [(f"{expr} IS NULL AND seq < ?", [seq], True)]
+        return [
+            (f"{expr} = ? AND seq < ?", [value, seq], True),
+            (f"{expr} < ?", [value], False),
+            (f"{expr} IS NULL", [], False),
+        ]
+    if value is None:
+        return [(f"{expr} IS NULL AND seq > ?", [seq], True), (f"{expr} IS NOT NULL", [], False)]
+    return [(f"{expr} = ? AND seq > ?", [value, seq], True), (f"{expr} > ?", [value], False)]
+
+
+def _decode_cursor(compiled: _Compiled, cursor: Any) -> tuple[Any, int]:
+    """Значение и номер строки из курсора; всё, что не могло прийти от сервера, — отказ."""
     try:
         padded = str(cursor) + "=" * (-len(str(cursor)) % 4)
         tag, value, seq = json.loads(base64.urlsafe_b64decode(padded.encode()))
-        seq = int(seq)
     except (ValueError, TypeError):
-        raise _bad("Курсор повреждён") from None
+        raise _bad("Курсор повреждён", "cursor") from None
     if tag != _tag_hash(compiled.sort_tag):
-        raise _bad("Курсор получен для другой сортировки; начните с первой страницы")
-    expr = compiled.sort_sql
-    if expr == "seq":
-        return [("seq < ?" if compiled.descending else "seq > ?", [seq])]
-    if compiled.descending:
-        if value is None:
-            return [(f"{expr} IS NULL AND seq < ?", [seq])]
-        return [
-            (f"{expr} <= ? AND ({expr} < ? OR seq < ?)", [value, value, seq]),
-            (f"{expr} IS NULL", []),
-        ]
-    if value is None:
-        return [(f"{expr} IS NULL AND seq > ?", [seq]), (f"{expr} IS NOT NULL", [])]
-    return [(f"{expr} >= ? AND ({expr} > ? OR seq > ?)", [value, value, seq])]
+        raise _bad("Курсор получен для другой сортировки; начните с первой страницы", "cursor")
+    plain = value is None or isinstance(value, str | float) or _is_int(value)
+    if not plain or isinstance(value, bool) or not _is_int(seq) or seq < 1:
+        raise _bad("Курсор повреждён", "cursor")
+    return value, seq
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and MIN_INT <= value <= MAX_INT
+
+
+def _index_exists(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?", (name,)
+    ).fetchone()
+    return row is not None
 
 
 def _tag_hash(tag: str) -> str:

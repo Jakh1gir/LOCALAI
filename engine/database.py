@@ -9,6 +9,7 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +88,16 @@ class Tx:
 
 def dumps(value: Any) -> str:
     """Компактный JSON с кириллицей как есть и устойчивым порядком ключей."""
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return json.dumps(
+        value, ensure_ascii=False, separators=(",", ":"), sort_keys=True, default=_exact
+    )
+
+
+def _exact(value: Any) -> str:
+    """Точное десятичное число из запроса — для отпечатка запроса, без округления."""
+    if isinstance(value, Decimal):
+        return str(value)
+    raise TypeError(f"Значение {type(value).__name__} не переводится в JSON")
 
 
 class Database:
