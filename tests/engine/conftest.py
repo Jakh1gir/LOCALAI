@@ -22,20 +22,30 @@ def plant(db):
         makers = structure.create_dictionary(tx, "Изготовитель")
         siemens = structure.add_dictionary_value(tx, makers["id"], "Siemens", ["Сименс"])
         kind = structure.create_type(tx, "Оборудование")
-        add = lambda name, k, **kw: structure.add_field(tx, kind["id"], name, k, **kw)  # noqa: E731
+        add = lambda name, k, **kw: structure.add_field(tx, kind["id"], name, k, **kw)
         fields = {
             "kks": add("ККС", "kks", required=True),
             "name": add("Наименование", "text", sortable=True),
             "power": add("Мощность, кВт", "number", filterable=True, sortable=True),
-            "maker": add("Изготовитель", "choice", dictionary_id=makers["id"],
-                         input_mode="suggest", filterable=True),
+            "maker": add(
+                "Изготовитель",
+                "choice",
+                dictionary_id=makers["id"],
+                input_mode="suggest",
+                filterable=True,
+            ),
             "checked": add("Дата проверки", "date", filterable=True),
             "spare": add("Резерв", "boolean"),
             "tags": add("Метки", "text", multiple=True),
-        }  # fmt: skip
+        }
         dataset = structure.create_dataset(tx, site["id"], kind["id"], "Эксплуатация")
     keys = {name: field["key"] for name, field in fields.items()}
     return {
-        "site": site, "type": kind, "dataset": dataset, "fields": fields, "keys": keys,
-        "makers": makers, "siemens": siemens,
-    }  # fmt: skip
+        "site": site,
+        "type": kind,
+        "dataset": dataset,
+        "fields": fields,
+        "keys": keys,
+        "makers": makers,
+        "siemens": siemens,
+    }

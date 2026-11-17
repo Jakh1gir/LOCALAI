@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -19,10 +17,16 @@ from typing import Any
 from engine import Actor, Database, kks, records, snapshot, structure, text
 from engine.database import Tx, dumps
 from engine.errors import EngineError
-from engine.validation import coerce_scalar
 from server.localdb_import.convert import (
-    KIND_BY_TYPE, ORIGIN, FieldPlan, Mapper, build_versions, canonical, loose_kks, moment,
-)  # fmt: skip
+    KIND_BY_TYPE,
+    ORIGIN,
+    FieldPlan,
+    Mapper,
+    build_versions,
+    loose_kks,
+    moment,
+)
+from server.localdb_import.reconcile import Reconciler, Stats
 from server.localdb_import.report import Issues
 from server.localdb_import.source import Source, SourceField, SourceRecord, SourceTable
 
@@ -64,9 +68,11 @@ def run(
     report: dict[str, Any] = {"mode": "dry_run"}
     with Source(source_path) as source:
         report["source"] = {
-            "path": str(source.path), "schema_version": source.schema_version,
-            "database_uuid": source.database_uuid, "profile": source.profile,
-        }  # fmt: skip
+            "path": str(source.path),
+            "schema_version": source.schema_version,
+            "database_uuid": source.database_uuid,
+            "profile": source.profile,
+        }
         source.check_schema()
         report["not_transferred"] = source.other_counts()
         if apply:
@@ -90,21 +96,6 @@ def run(
     return report
 
 
-@dataclass
-class _Stats:
-    dataset_id: str
-    name: str
-    records_new: int = 0
-    records_extended: int = 0
-    records_unchanged: int = 0
-    records_skipped: int = 0
-    versions: int = 0
-    source_lines: list[str] = field(default_factory=list)
-    ids: list[str] = field(default_factory=list)
-    source_archived: int = 0
-    source_version_sum: int = 0
-
-
 class _Job:
     def __init__(
         self, tx: Tx, source: Source, decisions: Decisions, issues: Issues, report: dict[str, Any]
@@ -114,7 +105,7 @@ class _Job:
         self.decisions = decisions
         self.issues = issues
         self.report = report
-        self.stats: dict[str, _Stats] = {}
+        self.stats: dict[str, Stats] = {}
         self.to_archive: set[str] = set()
         self.audit_cursor = 0
         self.site: dict[str, Any] | None = None
@@ -132,7 +123,6 @@ class _Job:
             for value in dictionary.values:
                 self.value_dictionary[value.id] = dictionary.id
                 self.final_text[value.id] = _final(value, by_id).canonical
-        self._labels: dict[str, str] = {}
 
     # Ход переноса -------------------------------------------------------------
 
@@ -147,6 +137,9 @@ class _Job:
             for dictionary in self.source.dictionaries.values()
             for value in dictionary.values
         }
+        self.reconciler = Reconciler(
+            self.tx, self.site["id"], self.mapper.source_texts, self.final_text
+        )
         for table in self.source.tables:
             self._table(table)
         for dataset_id in sorted(self.to_archive):
@@ -156,12 +149,10 @@ class _Job:
         self.report["kks"] = self._kks_summary()
         if self.decisions.include_audit:
             self.report["audit"] = {"events": self._audit()}
-        self.report["datasets"] = [
-            {key: value for key, value in stats.__dict__.items()
-             if key not in ("source_lines", "ids", "source_archived", "source_version_sum")}
-            for stats in self.stats.values()
-        ]  # fmt: skip
-        self.report["reconciliation"] = [self._reconcile(stats) for stats in self.stats.values()]
+        self.report["datasets"] = [stats.summary() for stats in self.stats.values()]
+        self.report["reconciliation"] = [
+            self.reconciler.check(stats, self.issues) for stats in self.stats.values()
+        ]
 
     def finish(self, started_at: str, source_path: str | Path) -> None:
         assert self.site is not None
@@ -175,10 +166,21 @@ class _Job:
             "INSERT INTO import_runs (id, source_kind, source_id, source_path, source_schema,"
             " site_id, actor_id, actor_label, started_at, finished_at, audit_cursor, report)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (run_id, SOURCE_KIND, self._source_id(), str(source_path), self.source.schema_version,
-             self.site["id"], self.tx.actor.id, self.tx.actor.label, started_at, self.tx.now,
-             self.audit_cursor, dumps(summary)),
-        )  # fmt: skip
+            (
+                run_id,
+                SOURCE_KIND,
+                self._source_id(),
+                str(source_path),
+                self.source.schema_version,
+                self.site["id"],
+                self.tx.actor.id,
+                self.tx.actor.label,
+                started_at,
+                self.tx.now,
+                self.audit_cursor,
+                dumps(summary),
+            ),
+        )
         totals = {
             "records_new": sum(stats.records_new for stats in self.stats.values()),
             "records_extended": sum(stats.records_extended for stats in self.stats.values()),
@@ -205,10 +207,11 @@ class _Job:
         if len(active) == 1:
             return active[0]
         self.issues.add(
-            "error", "site_required",
+            "error",
+            "site_required",
             "В LOCALAI несколько площадок: укажите, на какую переносить",
             ", ".join(site["name"] for site in active),
-        )  # fmt: skip
+        )
         return None
 
     # Таблица Local_DB → тип и реестры -----------------------------------------------
@@ -226,13 +229,82 @@ class _Job:
         for batch in self.source.records(table.id):
             fresh: dict[str, list[records.LoadedRecord]] = {}
             for record in batch:
-                loaded = self._record(record, plans, by_code)
-                if loaded is None:
-                    continue
                 dataset_id = self._dataset_of(record, mode, datasets, table, type_id)
-                self._place(record, loaded, dataset_id, plans, fresh)
+                self._one(record, dataset_id, plans, by_code, fresh)
             for dataset_id, items in fresh.items():
                 records.load(self.tx, dataset_id, items)
+
+    def _one(
+        self,
+        record: SourceRecord,
+        dataset_id: str,
+        plans: dict[int, FieldPlan],
+        by_code: dict[str, FieldPlan],
+        fresh: dict[str, list[records.LoadedRecord]],
+    ) -> None:
+        """Одна запись: сначала решение, потом преобразование значений.
+
+        Пропущенная запись не преобразуется вовсе, поэтому не добавляет в
+        каталог ККС и в справочники ничего своего (MIG-11).
+        """
+        stats = self.stats[dataset_id]
+        final = max([record.version, *(item.version for item in record.versions)])
+        verdict, kept_rows = self._decide(record, dataset_id, final)
+        if verdict == "skip":
+            stats.records_skipped += 1
+            return
+        if verdict == "unchanged":
+            stats.records_unchanged += 1
+            self.reconciler.remember(stats, record, plans, kept_rows, final)
+            return
+        if verdict == "new":
+            loaded = self._record(record, plans, by_code)
+            if loaded is not None:
+                fresh.setdefault(dataset_id, []).append(loaded)
+                stats.records_new += 1
+                stats.versions += len(loaded.versions)
+                self.reconciler.remember(stats, record, plans, len(loaded.versions), final)
+            return
+        try:
+            with self.tx.savepoint():  # запись дописывается целиком или остаётся прежней
+                loaded = self._record(record, plans, by_code)
+                added = records.extend(self.tx, loaded) if loaded is not None else 0
+        except EngineError as error:
+            self.mapper.forget()
+            self.issues.add("warning", error.code, error.message, record.uuid)
+            stats.records_skipped += 1
+            return
+        if loaded is not None:
+            stats.records_extended += 1
+            stats.versions += added
+            self.reconciler.remember(stats, record, plans, kept_rows + added, final)
+
+    def _decide(self, record: SourceRecord, dataset_id: str, final: int) -> tuple[str, int]:
+        """«new», «extend», «unchanged» или «skip» и число уже сохранённых версий (MIG-11)."""
+        existing = records.latest_origin(self.tx.conn, record.uuid)
+        if existing is None:
+            return "new", 0
+        version, origin = existing
+        row = self.tx.conn.execute(
+            "SELECT d.id AS dataset_id, (SELECT COUNT(*) FROM record_versions v"
+            " WHERE v.record_seq = r.seq) AS kept FROM records r"
+            " JOIN datasets d ON d.seq = r.dataset_seq WHERE r.id = ?",
+            (record.uuid,),
+        ).fetchone()
+        problem = None
+        if row["dataset_id"] != dataset_id:
+            problem = ("record_moved", "Записи сменили режим в Local_DB после переноса")
+        elif origin != ORIGIN:
+            problem = (
+                "record_edited",
+                "Записи изменены в LOCALAI; новые версии из Local_DB не взяты",
+            )
+        elif version > final:
+            problem = ("record_ahead", "Версия записи в LOCALAI новее, чем в Local_DB")
+        if problem:
+            self.issues.add("warning", problem[0], problem[1], record.uuid)
+            return "skip", row["kept"]
+        return ("unchanged" if version == final else "extend"), row["kept"]
 
     def _record(
         self, record: SourceRecord, plans: dict[int, FieldPlan], by_code: dict[str, FieldPlan]
@@ -241,70 +313,17 @@ class _Job:
             current = self.mapper.current_doc(record, plans, self.value_dictionary)
         except EngineError as error:
             self.issues.add(
-                "error", "value_invalid", "Значения, которые не приводятся к виду поля",
+                "error",
+                "value_invalid",
+                "Значения, которые не приводятся к виду поля",
                 {"message": error.message, **error.details},
-            )  # fmt: skip
+            )
             return None
         snapshots = [
             (version, self.mapper.history_doc(version.values, by_code))
             for version in record.versions
         ]
         return build_versions(record, current, snapshots, self.issues)
-
-    def _place(
-        self,
-        record: SourceRecord,
-        loaded: records.LoadedRecord,
-        dataset_id: str,
-        plans: dict[int, FieldPlan],
-        fresh: dict[str, list[records.LoadedRecord]],
-    ) -> None:
-        stats = self.stats[dataset_id]
-        existing = records.latest_origin(self.tx.conn, loaded.id)
-        if existing is None:
-            fresh.setdefault(dataset_id, []).append(loaded)
-            stats.records_new += 1
-            stats.versions += len(loaded.versions)
-        elif not self._update_existing(loaded, dataset_id, existing, stats):
-            stats.records_skipped += 1
-            return
-        stats.ids.append(loaded.id)
-        stats.source_lines.extend(self._source_lines(record, plans))
-        stats.source_archived += int(record.archived_at is not None)
-        stats.source_version_sum += loaded.versions[-1].version
-
-    def _update_existing(
-        self,
-        loaded: records.LoadedRecord,
-        dataset_id: str,
-        existing: tuple[int, str],
-        stats: _Stats,
-    ) -> bool:
-        """Повторный перенос (MIG-11). ``False`` — запись пропущена и вынесена на разбор."""
-        version, origin = existing
-        current = records.get(self.tx.conn, loaded.id)
-        final = loaded.versions[-1].version
-        problem = None
-        if current["dataset_id"] != dataset_id:
-            problem = ("record_moved", "Записи сменили режим в Local_DB после переноса")
-        elif origin != ORIGIN:
-            problem = ("record_edited", "Записи изменены в LOCALAI; новые версии из Local_DB не взяты")
-        elif version > final:
-            problem = ("record_ahead", "Версия записи в LOCALAI новее, чем в Local_DB")
-        if problem:
-            self.issues.add("warning", problem[0], problem[1], loaded.id)
-            return False
-        if version == final:
-            stats.records_unchanged += 1
-            return True
-        try:
-            added = records.extend(self.tx, loaded)
-        except EngineError as error:
-            self.issues.add("warning", error.code, error.message, loaded.id)
-            return False
-        stats.records_extended += 1
-        stats.versions += added
-        return True
 
     # Поля и справочники -------------------------------------------------------
 
@@ -318,21 +337,26 @@ class _Job:
             if source_field.code == self.decisions.mode_field:
                 continue
             kind = self._kind(source_field)
-            dictionary_id = self._dictionary(source_field.dictionary_id) if kind == "choice" else None
+            dictionary_id = (
+                self._dictionary(source_field.dictionary_id) if kind == "choice" else None
+            )
             field_id = _uuid(source_field.uuid, f"field:{source_field.uuid}")
             if field_id in existing:
                 row = existing[field_id]
                 if row["kind"] != kind:
                     self.issues.add(
-                        "error", "field_kind_changed",
+                        "error",
+                        "field_kind_changed",
                         "Поля, у которых в Local_DB сменился вид после прошлого переноса",
                         source_field.name,
-                    )  # fmt: skip
-                plans[source_field.id] = FieldPlan(source_field, row["key"], row["kind"],
-                                                   row["dictionary_id"])  # fmt: skip
+                    )
+                plans[source_field.id] = FieldPlan(
+                    source_field, row["key"], row["kind"], row["dictionary_id"]
+                )
                 continue
-            plans[source_field.id] = self._new_field(source_field, type_id, field_id, kind,
-                                                     dictionary_id)  # fmt: skip
+            plans[source_field.id] = self._new_field(
+                source_field, type_id, field_id, kind, dictionary_id
+            )
         return plans
 
     def _kind(self, source_field: SourceField) -> str:
@@ -341,15 +365,19 @@ class _Job:
         kind = KIND_BY_TYPE.get(source_field.data_type)
         if kind is None:
             self.issues.add(
-                "warning", "field_type_unknown", "Поля неизвестного вида; перенесены как текст",
+                "warning",
+                "field_type_unknown",
+                "Поля неизвестного вида; перенесены как текст",
                 f"{source_field.name}: {source_field.data_type}",
-            )  # fmt: skip
+            )
             return "text"
         if kind == "choice" and source_field.dictionary_id not in self.source.dictionaries:
             self.issues.add(
-                "warning", "field_without_dictionary",
-                "Поля-списки без справочника; перенесены как текст", source_field.name,
-            )  # fmt: skip
+                "warning",
+                "field_without_dictionary",
+                "Поля-списки без справочника; перенесены как текст",
+                source_field.name,
+            )
             return "text"
         return kind
 
@@ -366,15 +394,23 @@ class _Job:
         ).fetchone()
         key = source_field.code if structure.KEY_RE.match(source_field.code) and not taken else None
         created = structure.add_field(
-            self.tx, type_id, self._free_field_name(type_id, source_field.name), kind,
-            key=key, multiple=source_field.multiple, required=source_field.required,
-            searchable=source_field.searchable, filterable=source_field.filterable,
+            self.tx,
+            type_id,
+            self._free_field_name(type_id, source_field.name),
+            kind,
+            key=key,
+            multiple=source_field.multiple,
+            required=source_field.required,
+            searchable=source_field.searchable,
+            filterable=source_field.filterable,
             sortable=source_field.filterable and not source_field.multiple and kind != "kks",
             dictionary_id=dictionary_id,
             input_mode=("strict" if source_field.input_mode == "strict" else "suggest")
-            if kind == "choice" else None,
-            kks_role="object" if kind == "kks" else None, entity_id=field_id,
-        )  # fmt: skip
+            if kind == "choice"
+            else None,
+            kks_role="object" if kind == "kks" else None,
+            entity_id=field_id,
+        )
         counters = self.structure["fields"]
         counters["created"] += 1
         counters["by_kind"][kind] = counters["by_kind"].get(kind, 0) + 1
@@ -384,15 +420,18 @@ class _Job:
         if not source_field.visible:
             counters["hidden"] += 1
             self.issues.add(
-                "info", "field_hidden",
+                "info",
+                "field_hidden",
                 "Скрытые поля перенесены видимыми; видимость настраивается в интерфейсе",
                 source_field.name,
-            )  # fmt: skip
+            )
         if source_field.calculated:
             self.issues.add(
-                "info", "field_calculated",
-                "Вычисляемые поля перенесены со значениями, без формулы", source_field.name,
-            )  # fmt: skip
+                "info",
+                "field_calculated",
+                "Вычисляемые поля перенесены со значениями, без формулы",
+                source_field.name,
+            )
         return FieldPlan(source_field, created["key"], kind, dictionary_id)
 
     def _dictionary(self, source_id: int | None) -> str:
@@ -437,9 +476,11 @@ class _Job:
         if norm in names:
             counters["merged"] += 1
             self.issues.add(
-                "info", "value_case_duplicate",
-                "Значения справочника, отличающиеся только регистром или «ё»; объединены", shown,
-            )  # fmt: skip
+                "info",
+                "value_case_duplicate",
+                "Значения справочника, отличающиеся только регистром или «ё»; объединены",
+                shown,
+            )
             return names[norm]
         synonyms = []
         for alias in value.aliases:
@@ -448,9 +489,14 @@ class _Job:
                 synonyms.append(alias)
                 names[alias_norm] = value_id
         created = structure.add_dictionary_value(
-            self.tx, dictionary_id, shown, synonyms, archived=not value.active,
-            entity_id=value_id, audit=False,
-        )  # fmt: skip
+            self.tx,
+            dictionary_id,
+            shown,
+            synonyms,
+            archived=not value.active,
+            entity_id=value_id,
+            audit=False,
+        )
         names[norm] = created["id"]
         counters["created"] += 1
         counters["archived"] += int(not value.active)
@@ -492,7 +538,7 @@ class _Job:
                 self.tx, self.site["id"], type_id, free, entity_id=dataset_id
             )
             existing = created
-        self.stats.setdefault(dataset_id, _Stats(dataset_id, existing["name"]))
+        self.stats.setdefault(dataset_id, Stats(dataset_id, existing["name"]))
         return dataset_id
 
     def _dataset_of(
@@ -516,9 +562,11 @@ class _Job:
                     if value.id in datasets and text.norm_name(value.canonical) == norm:
                         return datasets[value.id]
         self.issues.add(
-            "warning", "record_without_mode", "Записи без режима; перенесены в реестр «Без режима»",
+            "warning",
+            "record_without_mode",
+            "Записи без режима; перенесены в реестр «Без режима»",
             record.uuid,
-        )  # fmt: skip
+        )
         return self._dataset(type_id, _uuid5(f"localdb:{table.uuid}:none"), "Без режима")
 
     # ККС и журнал -------------------------------------------------------------
@@ -539,9 +587,11 @@ class _Job:
         similar = [sorted(codes) for codes in groups.values() if len(codes) > 1 and codes & fresh]
         for codes in similar:
             self.issues.add(
-                "warning", "kks_similar",
-                "Похожие коды ККС не объединены; проверьте их вручную", " · ".join(codes),
-            )  # fmt: skip
+                "warning",
+                "kks_similar",
+                "Похожие коды ККС не объединены; проверьте их вручную",
+                " · ".join(codes),
+            )
         return {
             "created": len(self.mapper.kks_new) - len(history_only),
             "existing": len(self.mapper.kks_current - self.mapper.kks_new),
@@ -557,15 +607,31 @@ class _Job:
         cursor = row[0] or 0
         rows = []
         for event in self.source.audit_events(cursor):
-            rows.append((
-                moment(event["occurred_at"]),
-                f"{event['actor_name']} (из Local_DB)", ORIGIN,
-                f"localdb.{str(event['operation']).lower()}", str(event["entity_type"]).lower(),
-                event["entity_uuid"],
-                dumps({key: event[key] for key in
-                       ("uuid", "field_code", "before_json", "after_json", "metadata_json",
-                        "ip_address", "mode") if event[key] is not None}),
-            ))  # fmt: skip
+            rows.append(
+                (
+                    moment(event["occurred_at"]),
+                    f"{event['actor_name']} (из Local_DB)",
+                    ORIGIN,
+                    f"localdb.{str(event['operation']).lower()}",
+                    str(event["entity_type"]).lower(),
+                    event["entity_uuid"],
+                    dumps(
+                        {
+                            key: event[key]
+                            for key in (
+                                "uuid",
+                                "field_code",
+                                "before_json",
+                                "after_json",
+                                "metadata_json",
+                                "ip_address",
+                                "mode",
+                            )
+                            if event[key] is not None
+                        }
+                    ),
+                )
+            )
             cursor = event["id"]
         self.tx.conn.executemany(
             "INSERT INTO audit_log (at, actor_id, actor_label, origin, action, entity_kind,"
@@ -577,100 +643,6 @@ class _Job:
 
     def _source_id(self) -> str:
         return self.source.database_uuid or f"path:{self.source.path.resolve()}"
-
-    # Сверка ----------------------------------------------------------------------
-
-    def _source_lines(self, record: SourceRecord, plans: dict[int, FieldPlan]) -> list[str]:
-        """Значения записи из источника в едином написании — для контрольной суммы."""
-        grouped: dict[str, tuple[FieldPlan, list[str]]] = {}
-        for field_id, _ordinal, raw, value_id in record.values:
-            plan = plans.get(field_id)
-            if plan is None:
-                continue
-            shown = self._source_display(plan, raw, value_id)
-            if shown:
-                grouped.setdefault(plan.key, (plan, []))[1].append(shown)
-        lines = []
-        for key, (plan, values) in grouped.items():
-            kept = values if plan.source.multiple else values[-1:]
-            lines.append(f"{record.uuid}\t{key}\t" + "\x1f".join(kept))
-        return lines
-
-    def _source_display(self, plan: FieldPlan, raw: Any, value_id: int | None) -> str:
-        if value_id is not None:
-            if plan.kind == "choice":
-                shown = self.final_text.get(value_id, "")
-                return canonical("choice", shown) if shown.strip() else ""
-            raw = self.mapper.source_texts.get(value_id, "")
-        if raw in (None, ""):
-            return ""
-        if plan.kind in ("choice", "kks"):
-            return canonical(plan.kind, str(raw).strip()) if str(raw).strip() else ""
-        try:
-            raw = coerce_scalar(plan.kind, str(raw) if plan.kind == "text" else raw, plan.key)
-        except EngineError:
-            return str(raw)
-        return "" if raw is None else canonical(plan.kind, raw)
-
-    def _reconcile(self, stats: _Stats) -> dict[str, Any]:
-        """Сверка «было и стало» по реестру (MIG-13). Расхождение — ошибка, перенос отменяется."""
-        target_lines: list[str] = []
-        archived = version_sum = count = 0
-        dataset = structure.load_dataset(self.tx.conn, stats.dataset_id)
-        schema = structure.load_schema(self.tx.conn, dataset["type_id"])
-        kinds = {item.key: item for item in schema.fields}
-        for start in range(0, len(stats.ids), 500):
-            chunk = stats.ids[start : start + 500]
-            marks = ",".join("?" * len(chunk))
-            for row in self.tx.conn.execute(
-                f"SELECT id, version, doc, archived_at FROM records WHERE id IN ({marks})", chunk
-            ):
-                count += 1
-                archived += int(row["archived_at"] is not None)
-                version_sum += row["version"]
-                target_lines.extend(self._target_lines(row["id"], row["doc"], kinds))
-        source_sum = _digest(stats.source_lines)
-        target_sum = _digest(target_lines)
-        result = {
-            "dataset": stats.name,
-            "records_source": len(stats.ids), "records_target": count,
-            "archived_source": stats.source_archived, "archived_target": archived,
-            "versions_source": stats.source_version_sum, "versions_target": version_sum,
-            "checksum_source": source_sum, "checksum_target": target_sum,
-        }  # fmt: skip
-        result["ok"] = (
-            len(stats.ids) == count and stats.source_archived == archived
-            and stats.source_version_sum == version_sum and source_sum == target_sum
-        )  # fmt: skip
-        if not result["ok"]:
-            missing = sorted(set(stats.source_lines) ^ set(target_lines))[:3]
-            self.issues.add(
-                "error", "reconciliation_mismatch",
-                "Сверка не сошлась: перенос отменён", {"dataset": stats.name, "lines": missing},
-            )  # fmt: skip
-        return result
-
-    def _target_lines(self, record_id: str, doc_text: str, kinds: dict[str, Any]) -> list[str]:
-        doc = json.loads(doc_text)
-        lines = []
-        for key, value in doc.items():
-            plan = kinds[key]
-            items = value if isinstance(value, list) else [value]
-            shown = [self._target_display(plan.kind, item) for item in items]
-            lines.append(f"{record_id}\t{key}\t" + "\x1f".join(shown))
-        return lines
-
-    def _target_display(self, kind: str, value: Any) -> str:
-        if kind not in ("choice", "kks"):
-            return canonical(kind, value)
-        if value not in self._labels:
-            sql = (
-                "SELECT value FROM dictionary_values WHERE id = ?" if kind == "choice"
-                else "SELECT code FROM kks_objects WHERE id = ?"
-            )  # fmt: skip
-            row = self.tx.conn.execute(sql, (value,)).fetchone()
-            self._labels[value] = row[0] if row else "?"
-        return canonical(kind, self._labels[value])
 
     # Мелочи -------------------------------------------------------------------
 
@@ -727,8 +699,3 @@ def _uuid(value: str, seed: str) -> str:
 
 def _uuid5(seed: str) -> str:
     return str(uuid.uuid5(_NAMESPACE, seed))
-
-
-def _digest(lines: list[str]) -> str:
-    return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
-

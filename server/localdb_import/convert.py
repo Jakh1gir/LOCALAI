@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -53,12 +53,12 @@ class FieldPlan:
 def moment(value: Any) -> str:
     """Время Local_DB в формате LOCALAI: UTC, миллисекунды, «Z»."""
     try:
-        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        stamp = datetime.fromisoformat(str(value))
     except ValueError:
         return str(value)
     if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
-    stamp = stamp.astimezone(timezone.utc)
+        stamp = stamp.replace(tzinfo=UTC)
+    stamp = stamp.astimezone(UTC)
     return stamp.strftime("%Y-%m-%dT%H:%M:%S.") + f"{stamp.microsecond // 1000:03d}Z"
 
 
@@ -101,6 +101,28 @@ class Mapper:
         self.kks_current: set[str] = set()
         self.source_texts: dict[int, str] = {}  # id значения Local_DB → его текст
 
+    def forget(self) -> None:
+        """Сбросить запомненное после отката части транзакции.
+
+        Объекты ККС и значения справочников, созданные в откатанной части,
+        исчезли из базы; запомненные ID указывали бы в пустоту.
+        """
+        self._kks.clear()
+        self._names.clear()
+        for found in (self.kks_new, self.kks_current):
+            alive = (
+                {
+                    row[0]
+                    for row in self.tx.conn.execute(
+                        f"SELECT id FROM kks_objects WHERE id IN ({','.join('?' * len(found))})",
+                        sorted(found),
+                    )
+                }
+                if found
+                else set()
+            )
+            found.intersection_update(alive)
+
     # Справочники --------------------------------------------------------------
 
     def remember_names(self, dictionary_id: str) -> dict[str, str]:
@@ -132,11 +154,13 @@ class Mapper:
         names[text.norm_name(shown)] = created["id"]
         code = "value_history_only" if archived else "value_from_records"
         self.issues.add(
-            "info", code,
+            "info",
+            code,
             "Значения из истории записей, которых уже нет в справочнике; добавлены в архив"
-            if archived else "Значения, введённые текстом без справочника; добавлены в справочник",
+            if archived
+            else "Значения, введённые текстом без справочника; добавлены в справочник",
             f"{plan.source.name}: {shown}",
-        )  # fmt: skip
+        )
         return created["id"]
 
     # ККС ----------------------------------------------------------------------
@@ -178,13 +202,15 @@ class Mapper:
             if plan is None:
                 continue
             if (
-                plan.kind == "choice" and dictionary_value_id is not None
+                plan.kind == "choice"
+                and dictionary_value_id is not None
                 and value_dictionary.get(dictionary_value_id) != plan.source.dictionary_id
-            ):  # fmt: skip
+            ):
                 raise EngineError(
-                    "localdb_foreign_value", "Значение записи ссылается на чужой справочник",
+                    "localdb_foreign_value",
+                    "Значение записи ссылается на чужой справочник",
                     details={"record_id": record.uuid, "field": plan.source.name},
-                )  # fmt: skip
+                )
             value = self._current_value(plan, raw, dictionary_value_id, record.uuid)
             if value is not None:
                 grouped.setdefault(plan.key, []).append(value)
@@ -196,10 +222,11 @@ class Mapper:
             else:
                 if len(items) > 1:
                     self.issues.add(
-                        "warning", "single_many",
+                        "warning",
+                        "single_many",
                         "В одиночном поле несколько значений; взято последнее, как в Local_DB",
                         f"{record.uuid}: {by_key[key].source.name}",
-                    )  # fmt: skip
+                    )
                 doc[key] = items[-1]
         return doc
 
@@ -207,7 +234,9 @@ class Mapper:
         self, plan: FieldPlan, raw: Any, dictionary_value_id: int | None, record_uuid: str
     ) -> Any:
         if plan.kind == "kks":
-            shown = raw if dictionary_value_id is None else self.source_texts.get(dictionary_value_id)
+            shown = (
+                raw if dictionary_value_id is None else self.source_texts.get(dictionary_value_id)
+            )
             return None if shown in (None, "") else self.kks_id(str(shown), current=True)
         if plan.kind == "choice":
             if dictionary_value_id is not None:
@@ -247,10 +276,11 @@ class Mapper:
             return coerce_scalar(plan.kind, _as_text(plan.kind, raw), plan.key)
         except EngineError:
             self.issues.add(
-                "warning", "history_raw",
+                "warning",
+                "history_raw",
                 "Значения в истории, которые не приводятся к виду поля; сохранены как текст",
                 f"{plan.source.name}: {raw!r}",
-            )  # fmt: skip
+            )
             return str(raw)
 
 
@@ -276,10 +306,11 @@ def build_versions(
         state = current if item.version == final else doc
         if item.version == final and doc != current:
             issues.add(
-                "info", "snapshot_mismatch",
+                "info",
+                "snapshot_mismatch",
                 "Последний снимок версии расходится с текущими значениями; взяты текущие",
                 record.uuid,
-            )  # fmt: skip
+            )
         versions.append(_version(item, {} if previous is None else diff(previous, state)))
         previous = state
     if not versions or versions[-1].version != final:
@@ -287,14 +318,14 @@ def build_versions(
         actor = record.created_by if final == 1 else record.updated_by
         at = record.created_at if final == 1 else record.updated_at
         changes = {} if previous is None else diff(previous, current)
-        versions.append(
-            LoadedVersion(final, op, changes, actor + FROM_LOCALDB, moment(at), ORIGIN)
-        )
+        versions.append(LoadedVersion(final, op, changes, actor + FROM_LOCALDB, moment(at), ORIGIN))
         if previous is not None:
             issues.add(
-                "info", "history_partial", "Записи с неполной историей версий в Local_DB",
+                "info",
+                "history_partial",
+                "Записи с неполной историей версий в Local_DB",
                 record.uuid,
-            )  # fmt: skip
+            )
     return LoadedRecord(
         id=record.uuid,
         doc=current,
@@ -320,4 +351,6 @@ def _version(item: SourceVersion, changes: dict[str, Any]) -> LoadedVersion:
 
 def diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, list[Any]]:
     keys = sorted(set(before) | set(after))
-    return {key: [before.get(key), after.get(key)] for key in keys if before.get(key) != after.get(key)}
+    return {
+        key: [before.get(key), after.get(key)] for key in keys if before.get(key) != after.get(key)
+    }

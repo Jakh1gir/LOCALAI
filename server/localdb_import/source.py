@@ -7,12 +7,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 from urllib.parse import quote
 
 from engine.errors import EngineError
@@ -24,10 +25,18 @@ DATABASE_FILE = "local_db.sqlite3"
 MIN_SCHEMA = 5
 MAX_SCHEMA = 34
 REQUIRED_TABLES = (
-    "schema_migrations", "app_metadata", "data_tables", "field_definitions", "records",
-    "record_values", "record_versions", "dictionary_sets", "dictionary_values",
-    "dictionary_aliases", "audit_events",
-)  # fmt: skip
+    "schema_migrations",
+    "app_metadata",
+    "data_tables",
+    "field_definitions",
+    "records",
+    "record_values",
+    "record_versions",
+    "dictionary_sets",
+    "dictionary_values",
+    "dictionary_aliases",
+    "audit_events",
+)
 BATCH = 500
 
 
@@ -39,14 +48,17 @@ def _register_functions(conn: sqlite3.Connection) -> None:
     свёртка регистра и та же свёртка с обрезкой пробелов.
     """
     conn.create_function(
-        "LOCALDB_FOLD", 1, lambda value: "" if value is None else str(value).casefold(),
+        "LOCALDB_FOLD",
+        1,
+        lambda value: "" if value is None else str(value).casefold(),
         deterministic=True,
-    )  # fmt: skip
+    )
     conn.create_function(
-        "LOCALDB_IDENTIFIER", 1,
+        "LOCALDB_IDENTIFIER",
+        1,
         lambda value: "" if value is None else str(value).strip().casefold(),
         deterministic=True,
-    )  # fmt: skip
+    )
 
 
 @dataclass
@@ -131,15 +143,30 @@ class Source:
         self.path = _database_file(Path(path))
         self._tmp = tempfile.TemporaryDirectory(prefix="localai-import-")
         self.conn = _read_only_copy(self.path, Path(self._tmp.name) / "source.sqlite3")
-        self._check_tables()
-        self.schema_version = self._scalar("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
-        meta = dict(self.conn.execute("SELECT key, value FROM app_metadata").fetchall())
-        self.database_uuid = str(meta.get("database_uuid") or "")
-        self.profile = str(meta.get("starter_profile") or "")
-        self.dictionaries = self._dictionaries()
-        self.tables = self._tables()
+        try:
+            self._check_tables()
+            self.schema_version = self._scalar(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
+            )
+            # Версия проверяется до чтения структуры: у неподдерживаемой схемы
+            # может не быть нужных столбцов, и человек должен увидеть причину.
+            self.check_schema()
+            meta = dict(self.conn.execute("SELECT key, value FROM app_metadata").fetchall())
+            self.database_uuid = str(meta.get("database_uuid") or "")
+            self.profile = str(meta.get("starter_profile") or "")
+            self.dictionaries = self._dictionaries()
+            self.tables = self._tables()
+        except (sqlite3.Error, IndexError, KeyError) as error:
+            self.close()
+            raise EngineError(
+                "localdb_unreadable",
+                f"Структура базы Local_DB не совпадает с её схемой {self.schema_version}: {error}",
+            ) from error
+        except EngineError:
+            self.close()
+            raise
 
-    def __enter__(self) -> Source:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -184,12 +211,17 @@ class Source:
             versions = self._versions(ids)
             yield [
                 SourceRecord(
-                    id=row["id"], uuid=str(row["uuid"]).lower(), version=row["version"],
-                    created_at=row["created_at"], created_by=row["created_by"],
-                    updated_at=row["updated_at"], updated_by=row["updated_by"],
-                    archived_at=row["archived_at"], values=values.get(row["id"], []),
+                    id=row["id"],
+                    uuid=str(row["uuid"]).lower(),
+                    version=row["version"],
+                    created_at=row["created_at"],
+                    created_by=row["created_by"],
+                    updated_at=row["updated_at"],
+                    updated_by=row["updated_by"],
+                    archived_at=row["archived_at"],
+                    values=values.get(row["id"], []),
                     versions=versions.get(row["id"], []),
-                )  # fmt: skip
+                )
                 for row in rows
             ]
 
@@ -252,16 +284,21 @@ class Source:
 
     def _dictionaries(self) -> dict[int, SourceDictionary]:
         found = {
-            row["id"]: SourceDictionary(row["id"], str(row["uuid"]).lower(), row["code"], row["name"])
+            row["id"]: SourceDictionary(
+                row["id"], str(row["uuid"]).lower(), row["code"], row["name"]
+            )
             for row in self.conn.execute("SELECT * FROM dictionary_sets ORDER BY id")
         }
         values: dict[int, SourceValue] = {}
         for row in self.conn.execute("SELECT * FROM dictionary_values ORDER BY id"):
             value = SourceValue(
-                id=row["id"], uuid=str(row["uuid"]).lower(), dictionary_id=row["dictionary_id"],
-                canonical=row["canonical_value"] or "", active=bool(row["active"]),
+                id=row["id"],
+                uuid=str(row["uuid"]).lower(),
+                dictionary_id=row["dictionary_id"],
+                canonical=row["canonical_value"] or "",
+                active=bool(row["active"]),
                 merged_into=row["merged_into_id"],
-            )  # fmt: skip
+            )
             values[value.id] = value
             if value.dictionary_id in found:
                 found[value.dictionary_id].values.append(value)
@@ -286,15 +323,22 @@ class Source:
             ):
                 table.fields.append(
                     SourceField(
-                        id=item["id"], uuid=str(item["uuid"]).lower(), code=item["code"],
-                        name=item["name"], data_type=item["data_type"],
-                        input_mode=item["input_mode"], searchable=bool(item["searchable"]),
-                        filterable=bool(item["filterable"]), multiple=bool(item["multiple"]),
-                        required=bool(item["required"]), calculated=bool(item["is_calculated"]),
+                        id=item["id"],
+                        uuid=str(item["uuid"]).lower(),
+                        code=item["code"],
+                        name=item["name"],
+                        data_type=item["data_type"],
+                        input_mode=item["input_mode"],
+                        searchable=bool(item["searchable"]),
+                        filterable=bool(item["filterable"]),
+                        multiple=bool(item["multiple"]),
+                        required=bool(item["required"]),
+                        calculated=bool(item["is_calculated"]),
                         active=bool(item["active"]) and item["archived_at"] is None,
                         visible=bool(item["visible"]) if has_visible else True,
-                        sort_order=item["sort_order"], dictionary_id=item["dictionary_id"],
-                    )  # fmt: skip
+                        sort_order=item["sort_order"],
+                        dictionary_id=item["dictionary_id"],
+                    )
                 )
             tables.append(table)
         return tables
@@ -327,12 +371,16 @@ class Source:
             values = snapshot.get("values") if isinstance(snapshot, dict) else None
             found.setdefault(row["record_id"], []).append(
                 SourceVersion(
-                    version=row["version"], operation=row["operation"],
-                    archived=bool(snapshot.get("archived")) if isinstance(snapshot, dict) else False,
+                    version=row["version"],
+                    operation=row["operation"],
+                    archived=bool(snapshot.get("archived"))
+                    if isinstance(snapshot, dict)
+                    else False,
                     values=values if isinstance(values, dict) else {},
-                    actor=row["actor_name"], at=row["occurred_at"],
+                    actor=row["actor_name"],
+                    at=row["occurred_at"],
                     restored_from=row["restored_from_version"],
-                )  # fmt: skip
+                )
             )
         return found
 
@@ -371,11 +419,25 @@ def _read_only_copy(path: Path, target: Path) -> sqlite3.Connection:
     чтение не держало блокировку на рабочей базе Local_DB и видело один
     момент времени, даже если Local_DB продолжает работать.
     """
-    # Если файла журнала WAL нет, Local_DB не запущена и базу можно открыть как
-    # неизменяемую: так SQLite не создаёт рядом с ней служебных файлов. Если
-    # журнал есть, Local_DB работает или завершилась аварийно, и его нужно прочитать.
     wal = path.with_name(path.name + "-wal")
-    options = "mode=ro" if wal.exists() else "mode=ro&immutable=1"
+    shm = path.with_name(path.name + "-shm")
+    if not wal.exists():
+        # Журнала нет: Local_DB не запущена. Неизменяемое открытие не создаёт
+        # рядом с базой служебных файлов.
+        options = "mode=ro&immutable=1"
+    elif not shm.exists():
+        # Журнал есть, а файла общей памяти нет: Local_DB завершилась, не
+        # перенеся журнал в базу. Чтение на месте создало бы файл -shm рядом с
+        # источником, поэтому база и журнал копируются как файлы и читаются в копии.
+        staged = target.parent / "staged"
+        staged.mkdir()
+        shutil.copy2(path, staged / path.name)
+        shutil.copy2(wal, staged / wal.name)
+        path, options = staged / path.name, "mode=rw"
+    else:
+        # Журнал и файл общей памяти есть: Local_DB работает. Читаем на месте,
+        # как любой другой читатель; новых файлов не появляется.
+        options = "mode=ro"
     uri = f"file:{quote(str(path.resolve()))}?{options}"
     try:
         source = sqlite3.connect(uri, uri=True)

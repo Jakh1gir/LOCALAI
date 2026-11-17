@@ -26,21 +26,37 @@ def plant(client):
     """Площадка, справочник, тип с полями и реестр — через API."""
     site = client.post("/sites", {"name": "ТЭЦ-1"}).json()
     makers = client.post("/dictionaries", {"name": "Изготовитель"}).json()
-    client.post(f"/dictionaries/{makers['id']}/values", {"value": "Siemens", "synonyms": ["Сименс"]})
+    client.post(
+        f"/dictionaries/{makers['id']}/values", {"value": "Siemens", "synonyms": ["Сименс"]}
+    )
     kind = client.post("/types", {"name": "Оборудование"}).json()
     fields = {
-        "kks": client.post(f"/types/{kind['id']}/fields",
-                           {"name": "ККС", "kind": "kks", "required": True, "key": "kks"}).json(),
-        "name": client.post(f"/types/{kind['id']}/fields",
-                            {"name": "Наименование", "kind": "text", "key": "name", "sortable": True}).json(),
-        "power": client.post(f"/types/{kind['id']}/fields",
-                             {"name": "Мощность", "kind": "number", "key": "power", "filterable": True}).json(),
-        "maker": client.post(f"/types/{kind['id']}/fields",
-                             {"name": "Изготовитель", "kind": "choice", "key": "maker",
-                              "dictionary_id": makers["id"], "input_mode": "suggest"}).json(),
-    }  # fmt: skip
-    dataset = client.post("/datasets", {"site_id": site["id"], "type_id": kind["id"],
-                                        "name": "Эксплуатация"}).json()  # fmt: skip
+        "kks": client.post(
+            f"/types/{kind['id']}/fields",
+            {"name": "ККС", "kind": "kks", "required": True, "key": "kks"},
+        ).json(),
+        "name": client.post(
+            f"/types/{kind['id']}/fields",
+            {"name": "Наименование", "kind": "text", "key": "name", "sortable": True},
+        ).json(),
+        "power": client.post(
+            f"/types/{kind['id']}/fields",
+            {"name": "Мощность", "kind": "number", "key": "power", "filterable": True},
+        ).json(),
+        "maker": client.post(
+            f"/types/{kind['id']}/fields",
+            {
+                "name": "Изготовитель",
+                "kind": "choice",
+                "key": "maker",
+                "dictionary_id": makers["id"],
+                "input_mode": "suggest",
+            },
+        ).json(),
+    }
+    dataset = client.post(
+        "/datasets", {"site_id": site["id"], "type_id": kind["id"], "name": "Эксплуатация"}
+    ).json()
     return {"site": site, "type": kind, "fields": fields, "dataset": dataset, "makers": makers}
 
 
@@ -84,24 +100,33 @@ def test_contract_document_lists_exactly_the_implemented_routes():
 
 def test_record_lifecycle_through_the_api(client, plant):
     dataset = plant["dataset"]["id"]
-    created = client.post(f"/datasets/{dataset}/records",
-                          {"values": {"kks": "10LAC10AP001", "name": "Насос", "power": "12,5",
-                                      "maker": "сименс"}})  # fmt: skip
+    created = client.post(
+        f"/datasets/{dataset}/records",
+        {"values": {"kks": "10LAC10AP001", "name": "Насос", "power": "12,5", "maker": "сименс"}},
+    )
     assert created.status == 201
     record = created.json()
     assert record["version"] == 1 and record["doc"]["power"] == 12.5
 
-    page = client.post(f"/datasets/{dataset}/records/query", {"search": "насос", "limit": 10}).json()
+    page = client.post(
+        f"/datasets/{dataset}/records/query", {"search": "насос", "limit": 10}
+    ).json()
     assert [item["id"] for item in page["items"]] == [record["id"]]
     assert page["refs"]["choices"][record["doc"]["maker"]] == "Siemens"
     assert page["refs"]["kks"][record["doc"]["kks"]] == "10LAC10AP001"
-    count = client.post(f"/datasets/{dataset}/records/count",
-                        {"where": [{"field": "power", "op": "gt", "value": 10}]}).json()  # fmt: skip
+    count = client.post(
+        f"/datasets/{dataset}/records/count",
+        {"where": [{"field": "power", "op": "gt", "value": 10}]},
+    ).json()
     assert count == {"count": 1}
 
-    changed = client.patch(f"/records/{record['id']}", {"expected_version": 1, "values": {"name": "Насос ПЭН"}})
+    changed = client.patch(
+        f"/records/{record['id']}", {"expected_version": 1, "values": {"name": "Насос ПЭН"}}
+    )
     assert changed.status == 200 and changed.json()["version"] == 2
-    stale = client.patch(f"/records/{record['id']}", {"expected_version": 1, "values": {"name": "Другое"}})
+    stale = client.patch(
+        f"/records/{record['id']}", {"expected_version": 1, "values": {"name": "Другое"}}
+    )
     assert stale.status == 409
     assert stale.json()["error"]["code"] == "version_conflict"
     assert stale.json()["error"]["details"] == {"current_version": 2}
@@ -111,7 +136,9 @@ def test_record_lifecycle_through_the_api(client, plant):
     assert history[0]["actor_label"] == "Локальный пользователь"
     first = client.get(f"/records/{record['id']}/versions/1").json()
     assert first["doc"]["name"] == "Насос" and first["refs"]["kks"]
-    rolled = client.post(f"/records/{record['id']}/rollback", {"expected_version": 2, "to_version": 1})
+    rolled = client.post(
+        f"/records/{record['id']}/rollback", {"expected_version": 2, "to_version": 1}
+    )
     assert rolled.json()["version"] == 3 and rolled.json()["doc"]["name"] == "Насос"
 
     archived = client.post(f"/records/{record['id']}/archive", {"expected_version": 3}).json()
@@ -130,7 +157,9 @@ def test_kks_card_rename_and_aliases(client, plant):
     found = client.get(f"/sites/{site}/kks/search", q="10lac").json()["items"]
     assert [item["code"] for item in found] == ["10LAC10AP001"]
     object_id = found[0]["id"]
-    renamed = client.patch(f"/kks/{object_id}", {"code": "10LAC10AP002", "name": "Насос ПЭН-1"}).json()
+    renamed = client.patch(
+        f"/kks/{object_id}", {"code": "10LAC10AP002", "name": "Насос ПЭН-1"}
+    ).json()
     assert renamed["code"] == "10LAC10AP002" and renamed["name"] == "Насос ПЭН-1"
     by_old = client.get(f"/sites/{site}/kks/resolve", code="10lac10ap001").json()
     assert by_old["id"] == object_id and by_old["via"] == "alias"
@@ -173,7 +202,14 @@ def test_structure_routes(client, plant):
 @pytest.mark.parametrize(
     ("method", "path", "body", "status", "code", "field"),
     [
-        ("GET", "/records/00000000-0000-4000-8000-000000000000", None, 404, "record_not_found", None),
+        (
+            "GET",
+            "/records/00000000-0000-4000-8000-000000000000",
+            None,
+            404,
+            "record_not_found",
+            None,
+        ),
         ("GET", "/no-such-route", None, 404, "route_not_found", None),
         ("DELETE", "/sites", None, 405, "method_not_allowed", None),
         ("POST", "/sites", {"name": "x", "лишнее": 1}, 400, "request_invalid", "лишнее"),
@@ -194,10 +230,15 @@ def test_bad_json_and_bad_query(client, plant):
     broken = client.post("/sites", raw=b"{name:")
     assert broken.status == 400 and broken.json()["error"]["code"] == "request_json"
     dataset = plant["dataset"]["id"]
-    bad = client.post(f"/datasets/{dataset}/records/query",
-                      {"where": [{"field": "power", "op": "похоже", "value": 1}]})  # fmt: skip
+    bad = client.post(
+        f"/datasets/{dataset}/records/query",
+        {"where": [{"field": "power", "op": "похоже", "value": 1}]},
+    )
     assert bad.status == 400 and bad.json()["error"] == {
-        "code": "query_invalid", "message": "Неизвестная операция: похоже", "field": "power"}
+        "code": "query_invalid",
+        "message": "Неизвестная операция: похоже",
+        "field": "power",
+    }
     value = client.post(f"/datasets/{dataset}/records", {"values": {"kks": "A1", "power": "много"}})
     assert value.status == 400 and value.json()["error"]["field"] == "power"
 
@@ -230,6 +271,8 @@ def test_unexpected_failure_is_reported_without_details(tmp_path, monkeypatch):
 
 def test_failed_write_leaves_no_trace(client, plant):
     before = len(client.get("/audit", limit=200).json()["items"])
-    failed = client.post(f"/datasets/{plant['dataset']['id']}/records", {"values": {"name": "без ККС"}})
+    failed = client.post(
+        f"/datasets/{plant['dataset']['id']}/records", {"values": {"name": "без ККС"}}
+    )
     assert failed.status == 400 and failed.json()["error"]["code"] == "value_required"
     assert len(client.get("/audit", limit=200).json()["items"]) == before

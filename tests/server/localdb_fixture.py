@@ -61,9 +61,12 @@ CREATE TABLE record_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, uuid TEXT
 
 NOW = "2026-01-15T08:00:00+00:00"
 SCALAR_COLUMN = {
-    "text": "value_text", "integer": "value_integer", "decimal": "value_decimal",
-    "date": "value_date", "boolean": "value_boolean",
-}  # fmt: skip
+    "text": "value_text",
+    "integer": "value_integer",
+    "decimal": "value_decimal",
+    "date": "value_date",
+    "boolean": "value_boolean",
+}
 
 
 class LocalDb:
@@ -79,12 +82,18 @@ class LocalDb:
             "INSERT INTO app_metadata VALUES ('database_uuid', ?, ?)",
             (database_uuid or str(uuid.uuid4()), NOW),
         )
-        self.conn.execute("INSERT INTO app_metadata VALUES ('starter_profile', 'asu_tp', ?)", (NOW,))
+        self.conn.execute(
+            "INSERT INTO app_metadata VALUES ('starter_profile', 'asu_tp', ?)", (NOW,)
+        )
         self.table_uuid = str(uuid.uuid4())
         self.table_id = self._insert(
-            "data_tables", uuid=self.table_uuid, code="equipment", name="Оборудование",
-            created_at=NOW, updated_at=NOW,
-        )  # fmt: skip
+            "data_tables",
+            uuid=self.table_uuid,
+            code="equipment",
+            name="Оборудование",
+            created_at=NOW,
+            updated_at=NOW,
+        )
         self.fields: dict[str, dict[str, Any]] = {}
         self.dictionaries: dict[str, int] = {}
         self.records: dict[str, int] = {}
@@ -95,29 +104,66 @@ class LocalDb:
 
     # Структура ----------------------------------------------------------------
 
-    def field(self, code: str, name: str, data_type: str, *, multiple: bool = False,
-              input_mode: str = "free", active: bool = True, visible: bool = True,
-              searchable: bool = True, filterable: bool = True) -> None:  # fmt: skip
+    def field(
+        self,
+        code: str,
+        name: str,
+        data_type: str,
+        *,
+        multiple: bool = False,
+        input_mode: str = "free",
+        active: bool = True,
+        visible: bool = True,
+        searchable: bool = True,
+        filterable: bool = True,
+    ) -> None:
         dictionary_id = None
         if data_type == "smartfield":
             dictionary_id = self._insert(
-                "dictionary_sets", uuid=str(uuid.uuid4()), code=code, name=name,
-                created_at=NOW, updated_at=NOW,
-            )  # fmt: skip
+                "dictionary_sets",
+                uuid=str(uuid.uuid4()),
+                code=code,
+                name=name,
+                created_at=NOW,
+                updated_at=NOW,
+            )
             self.dictionaries[code] = dictionary_id
         field_uuid = str(uuid.uuid4())
         field_id = self._insert(
-            "field_definitions", uuid=field_uuid, table_id=self.table_id, code=code, name=name,
-            data_type=data_type, input_mode=input_mode, multiple=int(multiple),
-            searchable=int(searchable), filterable=int(filterable), active=int(active),
-            visible=int(visible), sort_order=len(self.fields), dictionary_id=dictionary_id,
-            created_at=NOW, updated_at=NOW,
-        )  # fmt: skip
-        self.fields[code] = {"id": field_id, "uuid": field_uuid, "type": data_type,
-                             "multiple": multiple, "dictionary_id": dictionary_id}  # fmt: skip
+            "field_definitions",
+            uuid=field_uuid,
+            table_id=self.table_id,
+            code=code,
+            name=name,
+            data_type=data_type,
+            input_mode=input_mode,
+            multiple=int(multiple),
+            searchable=int(searchable),
+            filterable=int(filterable),
+            active=int(active),
+            visible=int(visible),
+            sort_order=len(self.fields),
+            dictionary_id=dictionary_id,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+        self.fields[code] = {
+            "id": field_id,
+            "uuid": field_uuid,
+            "type": data_type,
+            "multiple": multiple,
+            "dictionary_id": dictionary_id,
+        }
 
-    def value(self, code: str, text: str, *, active: bool = True, merged_into: int | None = None,
-              aliases: tuple[str, ...] = ()) -> int:  # fmt: skip
+    def value(
+        self,
+        code: str,
+        text: str,
+        *,
+        active: bool = True,
+        merged_into: int | None = None,
+        aliases: tuple[str, ...] = (),
+    ) -> int:
         dictionary_id = self.dictionaries[code]
         found = self.conn.execute(
             "SELECT id FROM dictionary_values WHERE dictionary_id = ? AND canonical_value = ?",
@@ -126,29 +172,51 @@ class LocalDb:
         if found:
             return found[0]
         value_id = self._insert(
-            "dictionary_values", uuid=str(uuid.uuid4()), dictionary_id=dictionary_id,
-            canonical_value=text, active=int(active), merged_into_id=merged_into,
-            created_at=NOW, updated_at=NOW,
-        )  # fmt: skip
+            "dictionary_values",
+            uuid=str(uuid.uuid4()),
+            dictionary_id=dictionary_id,
+            canonical_value=text,
+            active=int(active),
+            merged_into_id=merged_into,
+            created_at=NOW,
+            updated_at=NOW,
+        )
         for alias in aliases:
             self._insert(
-                "dictionary_aliases", uuid=str(uuid.uuid4()), dictionary_id=dictionary_id,
-                dictionary_value_id=value_id, alias_value=alias, created_at=NOW, created_by="t",
-            )  # fmt: skip
+                "dictionary_aliases",
+                uuid=str(uuid.uuid4()),
+                dictionary_id=dictionary_id,
+                dictionary_value_id=value_id,
+                alias_value=alias,
+                created_at=NOW,
+                created_by="t",
+            )
         return value_id
 
     # Записи -------------------------------------------------------------------
 
-    def record(self, values: dict[str, Any], *, history: list[tuple[str, dict[str, Any]]] = (),
-               archived: bool = False, actor: str = "Иванов") -> str:  # fmt: skip
+    def record(
+        self,
+        values: dict[str, Any],
+        *,
+        history: list[tuple[str, dict[str, Any]]] = (),
+        archived: bool = False,
+        actor: str = "Иванов",
+    ) -> str:
         """Запись с текущими значениями; ``history`` — снимки более ранних версий."""
         record_uuid = str(uuid.uuid4())
         version = len(history) + 1
         record_id = self._insert(
-            "records", uuid=record_uuid, table_id=self.table_id, version=version,
-            created_at=NOW, created_by=actor, updated_at=f"2026-02-{version:02d}T09:00:00+00:00",
-            updated_by=actor, archived_at=NOW if archived else None,
-        )  # fmt: skip
+            "records",
+            uuid=record_uuid,
+            table_id=self.table_id,
+            version=version,
+            created_at=NOW,
+            created_by=actor,
+            updated_at=f"2026-02-{version:02d}T09:00:00+00:00",
+            updated_by=actor,
+            archived_at=NOW if archived else None,
+        )
         self.records[record_uuid] = record_id
         self._write_values(record_id, values)
         snapshots = [*history, ("UPDATE_RECORD" if history else "CREATE_RECORD", values)]
@@ -161,9 +229,12 @@ class LocalDb:
     def update(self, record_uuid: str, values: dict[str, Any], *, actor: str = "Петров") -> None:
         """Новая версия записи, как её пишет Local_DB."""
         record_id = self.records[record_uuid]
-        version = self.conn.execute(
-            "SELECT version FROM records WHERE id = ?", (record_id,)
-        ).fetchone()[0] + 1
+        version = (
+            self.conn.execute("SELECT version FROM records WHERE id = ?", (record_id,)).fetchone()[
+                0
+            ]
+            + 1
+        )
         self.conn.execute("DELETE FROM record_values WHERE record_id = ?", (record_id,))
         self._write_values(record_id, values)
         self.conn.execute(
@@ -174,39 +245,58 @@ class LocalDb:
 
     def audit(self, operation: str, entity_uuid: str | None = None, actor: str = "Иванов") -> None:
         self._insert(
-            "audit_events", uuid=str(uuid.uuid4()), occurred_at=NOW, actor_name=actor,
-            mode="engineer", operation=operation, entity_type="RECORD", entity_uuid=entity_uuid,
+            "audit_events",
+            uuid=str(uuid.uuid4()),
+            occurred_at=NOW,
+            actor_name=actor,
+            mode="engineer",
+            operation=operation,
+            entity_type="RECORD",
+            entity_uuid=entity_uuid,
             after_json=json.dumps({"ok": True}),
-        )  # fmt: skip
+        )
 
     def raw_value(self, record_uuid: str, code: str, column: str, value: Any) -> None:
         """Значение в обход проверок — для повреждённых данных."""
         self._insert(
-            "record_values", record_id=self.records[record_uuid],
-            field_id=self.fields[code]["id"], ordinal=0, created_at=NOW, **{column: value},
-        )  # fmt: skip
+            "record_values",
+            record_id=self.records[record_uuid],
+            field_id=self.fields[code]["id"],
+            ordinal=0,
+            created_at=NOW,
+            **{column: value},
+        )
 
     def _write_values(self, record_id: int, values: dict[str, Any]) -> None:
         for code, raw in values.items():
             meta = self.fields[code]
             items = raw if isinstance(raw, list) else [raw]
             for ordinal, item in enumerate(items):
-                row: dict[str, Any] = {"record_id": record_id, "field_id": meta["id"],
-                                       "ordinal": ordinal, "created_at": NOW}  # fmt: skip
+                row: dict[str, Any] = {
+                    "record_id": record_id,
+                    "field_id": meta["id"],
+                    "ordinal": ordinal,
+                    "created_at": NOW,
+                }
                 if meta["type"] == "smartfield":
                     row["dictionary_value_id"] = self.value(code, item)
                 else:
                     row[SCALAR_COLUMN[meta["type"]]] = item
                 self._insert("record_values", **row)
 
-    def _snapshot(self, record_id: int, version: int, operation: str, values: dict[str, Any],
-                  actor: str) -> None:  # fmt: skip
+    def _snapshot(
+        self, record_id: int, version: int, operation: str, values: dict[str, Any], actor: str
+    ) -> None:
         self._insert(
-            "record_versions", record_id=record_id, version=version, operation=operation,
+            "record_versions",
+            record_id=record_id,
+            version=version,
+            operation=operation,
             snapshot_json=json.dumps({"archived": False, "values": values}, ensure_ascii=False),
-            actor_name=actor, mode="engineer",
+            actor_name=actor,
+            mode="engineer",
             occurred_at=f"2026-02-{version:02d}T09:00:00.123456+00:00",
-        )  # fmt: skip
+        )
 
     def _insert(self, table: str, **values: Any) -> int:
         columns = ", ".join(values)

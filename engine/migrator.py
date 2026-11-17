@@ -40,8 +40,12 @@ def current_version(conn: sqlite3.Connection) -> int:
 def migrate(db: Database, *, backup_dir: str | Path | None = None) -> list[int]:
     """Применяет недостающие миграции. Возвращает номера применённых.
 
-    Перед изменением существующей базы создаётся её копия и проверяется
-    ``PRAGMA integrity_check``; без исправной копии миграция не начинается.
+    Перед каждой миграцией существующей базы создаётся её копия и
+    проверяется ``PRAGMA integrity_check``; без исправной копии миграция не
+    начинается (DATA-11). Каждая миграция — отдельная транзакция: при сбое
+    база остаётся на последней применённой схеме, а копия перед сбойной
+    миграцией сохраняется. После успешной серии остаётся только копия
+    перед первой миграцией, чтобы копии не занимали место без пользы.
     """
     conn = db.connect()
     version = current_version(conn)
@@ -56,12 +60,15 @@ def migrate(db: Database, *, backup_dir: str | Path | None = None) -> list[int]:
     pending = [item for item in migrations if item[0] > version]
     if not pending:
         return []
-    if version > 0:
-        _backup(conn, db.path, version, backup_dir)
-    applied = []
+    applied: list[int] = []
+    copies: list[Path] = []
     for number, name, path in pending:
+        if version > 0:  # новой пустой базе копия не нужна
+            copies.append(_backup(conn, db.path, number - 1, backup_dir))
         _apply(conn, number, name, path.read_text(encoding="utf-8"))
         applied.append(number)
+    for extra in copies[1:]:
+        extra.unlink(missing_ok=True)
     conn.execute(
         "INSERT OR IGNORE INTO app_meta (key, value) VALUES ('database_id', ?)",
         (text.new_id(),),

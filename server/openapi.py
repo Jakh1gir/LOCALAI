@@ -44,7 +44,9 @@ def build(endpoints: list[Endpoint] = ENDPOINTS) -> dict[str, Any]:
             schemas[name] = schema
             operation["requestBody"] = {
                 "required": True,
-                "content": {"application/json": {"schema": {"$ref": f"#/components/schemas/{name}"}}},
+                "content": {
+                    "application/json": {"schema": {"$ref": f"#/components/schemas/{name}"}}
+                },
             }
         paths.setdefault(PREFIX + endpoint.path, {})[endpoint.method.lower()] = operation
     return {
@@ -70,11 +72,15 @@ def _parameters(endpoint: Endpoint) -> list[dict[str, Any]]:
         for name in endpoint.query
     ]
     if endpoint.writes:
-        found.append({
-            "name": "Idempotency-Key", "in": "header", "required": False,
-            "schema": {"type": "string", "maxLength": 128},
-            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
-        })  # fmt: skip
+        found.append(
+            {
+                "name": "Idempotency-Key",
+                "in": "header",
+                "required": True,
+                "schema": {"type": "string", "maxLength": 128},
+                "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            }
+        )
     return found
 
 
@@ -113,8 +119,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         current = TARGET.read_text(encoding="utf-8") if TARGET.exists() else ""
         if current != fresh:
-            print(f"{TARGET} не совпадает с кодом: выполните python -m server.openapi",
-                  file=sys.stderr)  # fmt: skip
+            print(
+                f"{TARGET} не совпадает с кодом: выполните python -m server.openapi",
+                file=sys.stderr,
+            )
             return 1
         return 0
     TARGET.write_text(fresh, encoding="utf-8")

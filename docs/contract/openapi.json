@@ -841,7 +841,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -969,7 +969,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1044,7 +1044,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1109,7 +1109,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1314,7 +1314,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1415,7 +1415,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1490,7 +1490,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1626,7 +1626,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1701,7 +1701,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1776,7 +1776,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1851,7 +1851,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1916,7 +1916,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -1981,7 +1981,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2099,7 +2099,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2174,7 +2174,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2302,7 +2302,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2377,7 +2377,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2507,7 +2507,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2582,7 +2582,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2756,7 +2756,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2831,7 +2831,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -2906,7 +2906,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -3197,7 +3197,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -3325,7 +3325,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -3400,7 +3400,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"
@@ -3465,7 +3465,7 @@
             "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 128,
               "type": "string"

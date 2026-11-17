@@ -100,8 +100,7 @@ def reindex_records(conn: sqlite3.Connection, seqs: Iterable[int]) -> int:
 
 def reindex_type(conn: sqlite3.Connection, type_id: str) -> int:
     rows = conn.execute(
-        "SELECT r.seq FROM records r JOIN datasets d ON d.seq = r.dataset_seq"
-        " WHERE d.type_id = ?",
+        "SELECT r.seq FROM records r JOIN datasets d ON d.seq = r.dataset_seq WHERE d.type_id = ?",
         (type_id,),
     ).fetchall()
     return reindex_records(conn, [row[0] for row in rows])

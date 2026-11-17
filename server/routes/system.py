@@ -12,9 +12,15 @@ from server.api import Call, Endpoint
 def list_audit(call: Call) -> dict[str, Any]:
     """События журнала от новых к старым."""
     before = call.query_int("before", 0) or None
-    return {"items": audit.list_events(
-        call.conn, entity_id=call.query.get("entity_id"), dataset_id=call.query.get("dataset_id"),
-        before_seq=before, limit=call.query_int("limit", 50))}  # fmt: skip
+    return {
+        "items": audit.list_events(
+            call.conn,
+            entity_id=call.query.get("entity_id"),
+            dataset_id=call.query.get("dataset_id"),
+            before_seq=before,
+            limit=call.query_int("limit", 50),
+        )
+    }
 
 
 def health(call: Call) -> dict[str, Any]:
@@ -29,7 +35,13 @@ def health(call: Call) -> dict[str, Any]:
 
 
 ENDPOINTS = [
-    Endpoint("GET", "/audit", list_audit, "audit.read", query=("entity_id", "dataset_id", "before",
-             "limit"), tag="Журнал"),  # fmt: skip
+    Endpoint(
+        "GET",
+        "/audit",
+        list_audit,
+        "audit.read",
+        query=("entity_id", "dataset_id", "before", "limit"),
+        tag="Журнал",
+    ),
     Endpoint("GET", "/system/health", health, "public", tag="Система"),
 ]

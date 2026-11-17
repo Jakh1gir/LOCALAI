@@ -122,9 +122,7 @@ def get_type(conn: sqlite3.Connection, type_id: str) -> dict[str, Any]:
 
 
 def load_schema(conn: sqlite3.Connection, type_id: str) -> TypeSchema:
-    row = conn.execute(
-        "SELECT id, name, schema_rev FROM types WHERE id = ?", (type_id,)
-    ).fetchone()
+    row = conn.execute("SELECT id, name, schema_rev FROM types WHERE id = ?", (type_id,)).fetchone()
     if row is None:
         raise not_found("type", type_id)
     rows = conn.execute(
@@ -172,11 +170,25 @@ def add_field(
         " searchable, filterable, sortable, dictionary_id, input_mode, kks_role, position,"
         " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            field_id, type_id, key, shown, text.norm_name(shown), kind, int(multiple),
-            int(required), int(searchable), int(filterable), int(sortable), dictionary_id,
-            input_mode, kks_role, position, tx.now, tx.now,
+            field_id,
+            type_id,
+            key,
+            shown,
+            text.norm_name(shown),
+            kind,
+            int(multiple),
+            int(required),
+            int(searchable),
+            int(filterable),
+            int(sortable),
+            dictionary_id,
+            input_mode,
+            kks_role,
+            position,
+            tx.now,
+            tx.now,
         ),
-    )  # fmt: skip
+    )
     _bump_schema(tx, type_id)
     sync_field_index(tx.conn, key)
     tx.audit("field.create", "field", field_id, details={"type_id": type_id, "name": shown})
@@ -188,10 +200,13 @@ def update_field(tx: Tx, field_id: str, **changes: Any) -> dict[str, Any]:
     field = get_field(tx.conn, field_id)
     allowed = {"name", "position", "input_mode", *_FIELD_FLAGS}
     unknown = set(changes) - allowed
-    if unknown:
+    empty = sorted(key for key, value in changes.items() if value is None)
+    if empty and not unknown:
         raise EngineError(
-            "field_change", f"Это свойство поля изменить нельзя: {sorted(unknown)[0]}"
+            "field_change", f"Свойство поля «{empty[0]}» не может быть пустым", field=empty[0]
         )
+    if unknown:
+        raise EngineError("field_change", f"Это свойство поля изменить нельзя: {min(unknown)}")
     values: dict[str, Any] = {}
     if "name" in changes:
         shown = text.clean_name(changes["name"], "Название поля")
@@ -205,7 +220,9 @@ def update_field(tx: Tx, field_id: str, **changes: Any) -> dict[str, Any]:
             "field_sort_multiple", "По полю с несколькими значениями сортировать нельзя"
         )
     if "position" in changes:
-        values["position"] = int(changes["position"])
+        if isinstance(changes["position"], bool) or not isinstance(changes["position"], int):
+            raise EngineError("field_change", "Порядок поля — целое число", field="position")
+        values["position"] = changes["position"]
     if "input_mode" in changes:
         if field.kind != "choice" or changes["input_mode"] not in INPUT_MODES:
             raise EngineError("field_input_mode", "Режим ввода задаётся только для списка")
@@ -285,17 +302,20 @@ def create_dataset(
         (site_id, text.norm_name(shown)),
     ).fetchone()
     if taken:
-        raise EngineError(
-            "name_taken", f"На этой площадке уже есть реестр «{shown}»", field="name"
-        )
+        raise EngineError("name_taken", f"На этой площадке уже есть реестр «{shown}»", field="name")
     dataset_id = _new_id(tx, "datasets", entity_id)
     tx.conn.execute(
         "INSERT INTO datasets (id, site_id, type_id, name, name_norm, created_at,"
         " updated_at) VALUES (?,?,?,?,?,?,?)",
         (dataset_id, site_id, type_id, shown, text.norm_name(shown), tx.now, tx.now),
     )
-    tx.audit("dataset.create", "dataset", dataset_id, dataset_id=dataset_id,
-             details={"name": shown, "type_id": type_id, "site_id": site_id})  # fmt: skip
+    tx.audit(
+        "dataset.create",
+        "dataset",
+        dataset_id,
+        dataset_id=dataset_id,
+        details={"name": shown, "type_id": type_id, "site_id": site_id},
+    )
     return get_dataset(tx.conn, dataset_id)
 
 
@@ -307,17 +327,29 @@ def rename_dataset(tx: Tx, dataset_id: str, name: str) -> dict[str, Any]:
         (current["site_id"], text.norm_name(shown), dataset_id),
     ).fetchone()
     if taken:
-        raise EngineError(
-            "name_taken", f"На этой площадке уже есть реестр «{shown}»", field="name"
-        )
+        raise EngineError("name_taken", f"На этой площадке уже есть реестр «{shown}»", field="name")
     _update(tx, "datasets", dataset_id, {"name": shown, "name_norm": text.norm_name(shown)})
-    tx.audit("dataset.rename", "dataset", dataset_id, dataset_id=dataset_id,
-             details={"from": current["name"], "to": shown})  # fmt: skip
+    tx.audit(
+        "dataset.rename",
+        "dataset",
+        dataset_id,
+        dataset_id=dataset_id,
+        details={"from": current["name"], "to": shown},
+    )
     return get_dataset(tx.conn, dataset_id)
 
 
 def archive_dataset(tx: Tx, dataset_id: str, archived: bool = True) -> dict[str, Any]:
-    get_dataset(tx.conn, dataset_id)
+    """Архив и восстановление реестра. Реестр архивного типа или площадки не восстанавливается."""
+    current = get_dataset(tx.conn, dataset_id)
+    if not archived:
+        site = _get(tx.conn, "sites", "site", current["site_id"])
+        kind = _get(tx.conn, "types", "type", current["type_id"])
+        if site["archived_at"] or kind["archived_at"]:
+            raise EngineError(
+                "dataset_parent_archived",
+                "Тип или площадка реестра в архиве; сначала восстановите их",
+            )
     _set_archived(tx, "datasets", "dataset", dataset_id, archived)
     return get_dataset(tx.conn, dataset_id)
 
@@ -400,21 +432,32 @@ def add_dictionary_value(
     extra = _clean_synonyms(synonyms or [], shown)
     _check_value_free(tx.conn, dictionary_id, [shown, *extra], None)
     position = tx.conn.execute(
-        "SELECT COALESCE(MAX(position), 0) + 1 FROM dictionary_values"
-        " WHERE dictionary_id = ?",
+        "SELECT COALESCE(MAX(position), 0) + 1 FROM dictionary_values WHERE dictionary_id = ?",
         (dictionary_id,),
     ).fetchone()[0]
     value_id = _new_id(tx, "dictionary_values", entity_id)
     tx.conn.execute(
         "INSERT INTO dictionary_values (id, dictionary_id, value, value_norm, synonyms,"
         " position, archived_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-        (value_id, dictionary_id, shown, text.norm_name(shown),
-         json.dumps(extra, ensure_ascii=False), position, tx.now if archived else None,
-         tx.now, tx.now),
-    )  # fmt: skip
+        (
+            value_id,
+            dictionary_id,
+            shown,
+            text.norm_name(shown),
+            json.dumps(extra, ensure_ascii=False),
+            position,
+            tx.now if archived else None,
+            tx.now,
+            tx.now,
+        ),
+    )
     if audit:
-        tx.audit("dictionary_value.create", "dictionary_value", value_id,
-                 details={"dictionary_id": dictionary_id, "value": shown})  # fmt: skip
+        tx.audit(
+            "dictionary_value.create",
+            "dictionary_value",
+            value_id,
+            details={"dictionary_id": dictionary_id, "value": shown},
+        )
     return get_dictionary_value(tx.conn, value_id)
 
 
@@ -428,9 +471,7 @@ def update_dictionary_value(
 ) -> dict[str, Any]:
     """Переименование значения сразу видно во всех записях: в них хранится ID."""
     current = get_dictionary_value(tx.conn, value_id)
-    shown = (
-        text.clean_name(value, "Значение", MAX_VALUE) if value is not None else current["value"]
-    )
+    shown = text.clean_name(value, "Значение", MAX_VALUE) if value is not None else current["value"]
     extra = current["synonyms"] if synonyms is None else _clean_synonyms(synonyms, shown)
     extra = [item for item in extra if text.norm_name(item) != text.norm_name(shown)]
     _check_value_free(tx.conn, current["dictionary_id"], [shown, *extra], value_id)
@@ -444,8 +485,12 @@ def update_dictionary_value(
     _update(tx, "dictionary_values", value_id, values)
     if shown != current["value"]:
         _fulltext().reindex_choice(tx.conn, current["dictionary_id"], value_id)
-    tx.audit("dictionary_value.update", "dictionary_value", value_id,
-             details={"from": current["value"], "to": shown})  # fmt: skip
+    tx.audit(
+        "dictionary_value.update",
+        "dictionary_value",
+        value_id,
+        details={"from": current["value"], "to": shown},
+    )
     return get_dictionary_value(tx.conn, value_id)
 
 
@@ -471,13 +516,22 @@ def _fulltext() -> Any:
 
 def _field(row: sqlite3.Row) -> Field:
     return Field(
-        id=row["id"], type_id=row["type_id"], key=row["key"], name=row["name"],
-        kind=row["kind"], multiple=bool(row["multiple"]), required=bool(row["required"]),
-        searchable=bool(row["searchable"]), filterable=bool(row["filterable"]),
-        sortable=bool(row["sortable"]), dictionary_id=row["dictionary_id"],
-        input_mode=row["input_mode"], kks_role=row["kks_role"], position=row["position"],
+        id=row["id"],
+        type_id=row["type_id"],
+        key=row["key"],
+        name=row["name"],
+        kind=row["kind"],
+        multiple=bool(row["multiple"]),
+        required=bool(row["required"]),
+        searchable=bool(row["searchable"]),
+        filterable=bool(row["filterable"]),
+        sortable=bool(row["sortable"]),
+        dictionary_id=row["dictionary_id"],
+        input_mode=row["input_mode"],
+        kks_role=row["kks_role"],
+        position=row["position"],
         archived_at=row["archived_at"],
-    )  # fmt: skip
+    )
 
 
 def _kind_options(
@@ -568,7 +622,7 @@ def _check_value_free(
         if clash:
             raise EngineError(
                 "value_taken",
-                f"В справочнике уже есть «{wanted[sorted(clash)[0]]}»",
+                f"В справочнике уже есть «{wanted[min(clash)]}»",
                 field="value",
             )
 

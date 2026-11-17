@@ -10,10 +10,10 @@
 - Идентификаторы — UUID. Время — строка UTC `2026-11-17T09:30:00.000Z`.
 - Список без страниц отдаётся как `{"items": [...]}`; страницы записей — как описано в языке запросов.
 - **Ожидаемая версия.** Изменение записи несёт `expected_version`. Если запись успели изменить, сервер отвечает `409 version_conflict` и текущей версией в `details.current_version`; интерфейс показывает отличия, а не затирает чужую правку (DATA-04).
-- **Идемпотентность.** Изменяющий запрос несёт заголовок `Idempotency-Key` (до 128 символов). Повтор с тем же ключом возвращает прежний ответ и ничего не меняет; тот же ключ с другим телом — `409 idempotency_mismatch` (API-06).
+- **Идемпотентность.** Каждый изменяющий запрос обязан нести заголовок `Idempotency-Key` (до 128 символов); без него — `400 idempotency_key_required`. Повтор с тем же ключом возвращает прежний ответ и ничего не меняет; тот же ключ с другим телом — `409 idempotency_mismatch` (API-06). Чтение (`GET`, а также `POST …/records/query` и `…/records/count`) ключа не требует.
 - **Одно действие — одна транзакция.** При любой ошибке не остаётся ни частичных данных, ни строки аудита.
 - До этапа 2 маршруты не требуют входа: все действия записываются от имени «Локальный пользователь», а сервер по умолчанию слушает только адрес `127.0.0.1`. У каждого маршрута уже объявлено право (`x-permission` в `openapi.json`); с этапа 2 маршрут без выданного права недоступен (API-02).
-- Тело запроса — до 10 МиБ. Лишние поля в теле отклоняются.
+- Тело запроса — до 10 МиБ; больше — `413 request_too_large`. Лишние поля в теле отклоняются.
 - Ответ без тела — `204`. Непредвиденная ошибка — `500` с кодом `internal` без подробностей; подробности пишутся в журнал сервера.
 
 ## Ошибка
@@ -26,9 +26,10 @@
 
 | HTTP | Когда | Примеры кодов |
 | --- | --- | --- |
-| 400 | Неверные данные или запрос | `request_invalid`, `request_json`, `value_required`, `value_number`, `value_date`, `value_choice`, `field_unknown`, `field_archived`, `name_taken`, `name_empty`, `query_invalid`, `kks_archived`, `kks_unknown`, `kks_link_duplicate` |
-| 404 | Объект или адрес не найден | `route_not_found`, `record_not_found`, `dataset_not_found`, `type_not_found`, `kks_not_found` |
+| 400 | Неверные данные или запрос | `request_invalid`, `request_json`, `idempotency_key_required`, `value_required`, `value_number`, `value_precision`, `value_out_of_range`, `value_date`, `value_choice`, `value_choice_archived`, `field_unknown`, `field_archived`, `field_change`, `name_taken`, `name_empty`, `query_invalid`, `kks_archived`, `kks_unknown`, `kks_too_long`, `rollback_invalid`, `dataset_parent_archived` |
+| 404 | Объект или адрес не найден | `route_not_found`, `record_not_found`, `dataset_not_found`, `type_not_found`, `kks_not_found`, `version_missing` |
 | 409 | Конфликт с текущим состоянием | `version_conflict`, `record_archived`, `kks_code_taken`, `idempotency_mismatch` |
+| 413 | Тело запроса больше 10 МиБ | `request_too_large` |
 
 ## Структура
 

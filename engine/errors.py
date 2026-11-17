@@ -7,6 +7,7 @@ from typing import Any
 NOT_FOUND = "not_found"
 INVALID = "invalid"
 CONFLICT = "conflict"
+TOO_LARGE = "too_large"
 
 
 class EngineError(Exception):
