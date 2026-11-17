@@ -394,6 +394,15 @@ def _item(row: sqlite3.Row, dataset_id: str) -> dict[str, Any]:
     }
 
 
+def refs(
+    conn: sqlite3.Connection, dataset_id: str, docs: list[dict[str, Any]]
+) -> dict[str, dict[str, str]]:
+    """Названия значений справочников и коды ККС для документов записей реестра."""
+    dataset = structure.load_dataset(conn, dataset_id)
+    schema = structure.load_schema(conn, dataset["type_id"])
+    return _refs(conn, schema, [{"doc": doc} for doc in docs])
+
+
 def _refs(
     conn: sqlite3.Connection, schema: structure.TypeSchema, items: list[dict[str, Any]]
 ) -> dict[str, dict[str, str]]:

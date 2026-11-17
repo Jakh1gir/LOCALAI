@@ -8,7 +8,9 @@ requires-python = ">=3.13"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+# Сервер написан на Starlette (основа FastAPI) и Pydantic; версии — те, на которых он проверен.
+server = ["starlette>=1.7", "pydantic>=2.13", "uvicorn>=0.54"]
+dev = ["pytest>=8", "anyio>=4"]
 
 [build-system]
 requires = ["setuptools>=69"]
