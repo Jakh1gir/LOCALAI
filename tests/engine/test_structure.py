@@ -105,21 +105,31 @@ def test_database_settings_and_foreign_keys(db, plant):
         )
 
 
-def test_migration_backs_up_existing_database(tmp_path, monkeypatch):
-    path = tmp_path / "base.sqlite3"
-    open_database(str(path)).close()
+def _with_extra_migration(tmp_path, monkeypatch, name: str, sql: str) -> int:
+    """Копия настоящих миграций плюс одна следующая; возвращает её номер."""
     extra = tmp_path / "migrations"
     extra.mkdir()
     for source in migrator.MIGRATIONS_DIR.glob("*.sql"):
         (extra / source.name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-    (extra / "0002_probe.sql").write_text("CREATE TABLE probe (id INTEGER PRIMARY KEY);")
+    number = len(migrator.available()) + 1
+    (extra / f"{number:04d}_{name}.sql").write_text(sql, encoding="utf-8")
     monkeypatch.setattr(migrator, "MIGRATIONS_DIR", extra)
+    return number
+
+
+def test_migration_backs_up_existing_database(tmp_path, monkeypatch):
+    path = tmp_path / "base.sqlite3"
+    open_database(str(path)).close()
+    latest = len(migrator.available())
+    number = _with_extra_migration(
+        tmp_path, monkeypatch, "probe", "CREATE TABLE probe (id INTEGER PRIMARY KEY);"
+    )
     db = Database(str(path))
-    assert migrator.migrate(db) == [2]
-    copies = list(tmp_path.glob("base.schema0001.*.sqlite3"))
+    assert migrator.migrate(db) == [number]
+    copies = list(tmp_path.glob(f"base.schema{latest:04d}.*.sqlite3"))
     assert len(copies) == 1  # копия сделана до изменения схемы
     copy = sqlite3.connect(copies[0])
-    assert copy.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 1
+    assert copy.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == latest
     copy.close()
     db.close()
     monkeypatch.setattr(migrator, "MIGRATIONS_DIR", ROOT / "engine" / "migrations")
@@ -131,17 +141,15 @@ def test_migration_backs_up_existing_database(tmp_path, monkeypatch):
 def test_broken_migration_changes_nothing(tmp_path, monkeypatch):
     path = tmp_path / "base.sqlite3"
     open_database(str(path)).close()
-    extra = tmp_path / "migrations"
-    extra.mkdir()
-    for source in migrator.MIGRATIONS_DIR.glob("*.sql"):
-        (extra / source.name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-    (extra / "0002_broken.sql").write_text("CREATE TABLE half (id INTEGER); СЛОМАНО;")
-    monkeypatch.setattr(migrator, "MIGRATIONS_DIR", extra)
+    latest = len(migrator.available())
+    _with_extra_migration(
+        tmp_path, monkeypatch, "broken", "CREATE TABLE half (id INTEGER); СЛОМАНО;"
+    )
     db = Database(str(path))
     with pytest.raises(EngineError):
         migrator.migrate(db)
     conn = db.connect()
-    assert migrator.current_version(conn) == 1
+    assert migrator.current_version(conn) == latest
     assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE name = 'half'").fetchone()[0] == 0
     db.close()
 

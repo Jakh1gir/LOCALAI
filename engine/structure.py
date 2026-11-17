@@ -15,12 +15,13 @@ from typing import Any
 
 from engine import text
 from engine.database import Tx
-from engine.errors import EngineError, not_found
+from engine.errors import CONFLICT, EngineError, not_found
 
 FIELD_KINDS = ("text", "integer", "number", "boolean", "date", "choice", "kks")
 KKS_ROLES = ("object", "signal", "route_start", "route_end", "route_via", "related")
 INPUT_MODES = ("strict", "suggest")
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+MAX_VALUE = 1000  # значение справочника длиннее названия: это бывает марка или описание
 _FIELD_FLAGS = ("required", "searchable", "filterable", "sortable")
 
 
@@ -66,8 +67,8 @@ class TypeSchema:
 # Площадки -----------------------------------------------------------------
 
 
-def create_site(tx: Tx, name: str) -> dict[str, Any]:
-    return _create_named(tx, "sites", "site", name, {})
+def create_site(tx: Tx, name: str, *, entity_id: str | None = None) -> dict[str, Any]:
+    return _create_named(tx, "sites", "site", name, {}, entity_id)
 
 
 def rename_site(tx: Tx, site_id: str, name: str) -> dict[str, Any]:
@@ -85,8 +86,11 @@ def get_site(conn: sqlite3.Connection, site_id: str) -> dict[str, Any]:
 # Типы и поля ----------------------------------------------------------------
 
 
-def create_type(tx: Tx, name: str, description: str | None = None) -> dict[str, Any]:
-    return _create_named(tx, "types", "type", name, {"description": description})
+def create_type(
+    tx: Tx, name: str, description: str | None = None, *, entity_id: str | None = None
+) -> dict[str, Any]:
+    """Новый тип. ``entity_id`` задаётся при переносе данных, чтобы сохранить исходный ID."""
+    return _create_named(tx, "types", "type", name, {"description": description}, entity_id)
 
 
 def rename_type(tx: Tx, type_id: str, name: str) -> dict[str, Any]:
@@ -144,6 +148,7 @@ def add_field(
     dictionary_id: str | None = None,
     input_mode: str | None = None,
     kks_role: str | None = None,
+    entity_id: str | None = None,
 ) -> dict[str, Any]:
     owner = _get(tx.conn, "types", "type", type_id)
     shown = text.clean_name(name, "Название поля")
@@ -161,7 +166,7 @@ def add_field(
     position = tx.conn.execute(
         "SELECT COALESCE(MAX(position), 0) + 1 FROM fields WHERE type_id = ?", (type_id,)
     ).fetchone()[0]
-    field_id = text.new_id()
+    field_id = _new_id(tx, "fields", entity_id)
     tx.conn.execute(
         "INSERT INTO fields (id, type_id, key, name, name_norm, kind, multiple, required,"
         " searchable, filterable, sortable, dictionary_id, input_mode, kks_role, position,"
@@ -267,7 +272,9 @@ def sync_field_index(conn: sqlite3.Connection, key: str) -> None:
 # Реестры ------------------------------------------------------------------
 
 
-def create_dataset(tx: Tx, site_id: str, type_id: str, name: str) -> dict[str, Any]:
+def create_dataset(
+    tx: Tx, site_id: str, type_id: str, name: str, *, entity_id: str | None = None
+) -> dict[str, Any]:
     site = _get(tx.conn, "sites", "site", site_id)
     kind = _get(tx.conn, "types", "type", type_id)
     if site["archived_at"] or kind["archived_at"]:
@@ -281,7 +288,7 @@ def create_dataset(tx: Tx, site_id: str, type_id: str, name: str) -> dict[str, A
         raise EngineError(
             "name_taken", f"На этой площадке уже есть реестр «{shown}»", field="name"
         )
-    dataset_id = text.new_id()
+    dataset_id = _new_id(tx, "datasets", entity_id)
     tx.conn.execute(
         "INSERT INTO datasets (id, site_id, type_id, name, name_norm, created_at,"
         " updated_at) VALUES (?,?,?,?,?,?,?)",
@@ -344,8 +351,8 @@ def list_datasets(
 # Справочники ----------------------------------------------------------------
 
 
-def create_dictionary(tx: Tx, name: str) -> dict[str, Any]:
-    return _create_named(tx, "dictionaries", "dictionary", name, {})
+def create_dictionary(tx: Tx, name: str, *, entity_id: str | None = None) -> dict[str, Any]:
+    return _create_named(tx, "dictionaries", "dictionary", name, {}, entity_id)
 
 
 def rename_dictionary(tx: Tx, dictionary_id: str, name: str) -> dict[str, Any]:
@@ -374,10 +381,22 @@ def list_dictionary_values(
 
 
 def add_dictionary_value(
-    tx: Tx, dictionary_id: str, value: str, synonyms: list[str] | None = None
+    tx: Tx,
+    dictionary_id: str,
+    value: str,
+    synonyms: list[str] | None = None,
+    *,
+    archived: bool = False,
+    entity_id: str | None = None,
+    audit: bool = True,
 ) -> dict[str, Any]:
+    """Новое значение справочника.
+
+    При пакетном переносе ``audit=False``: тысячи значений справочника — не
+    тысячи событий журнала; итог переноса пишется одной строкой.
+    """
     _get(tx.conn, "dictionaries", "dictionary", dictionary_id)
-    shown = text.clean_name(value, "Значение")
+    shown = text.clean_name(value, "Значение", MAX_VALUE)
     extra = _clean_synonyms(synonyms or [], shown)
     _check_value_free(tx.conn, dictionary_id, [shown, *extra], None)
     position = tx.conn.execute(
@@ -385,15 +404,17 @@ def add_dictionary_value(
         " WHERE dictionary_id = ?",
         (dictionary_id,),
     ).fetchone()[0]
-    value_id = text.new_id()
+    value_id = _new_id(tx, "dictionary_values", entity_id)
     tx.conn.execute(
         "INSERT INTO dictionary_values (id, dictionary_id, value, value_norm, synonyms,"
-        " position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+        " position, archived_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
         (value_id, dictionary_id, shown, text.norm_name(shown),
-         json.dumps(extra, ensure_ascii=False), position, tx.now, tx.now),
+         json.dumps(extra, ensure_ascii=False), position, tx.now if archived else None,
+         tx.now, tx.now),
     )  # fmt: skip
-    tx.audit("dictionary_value.create", "dictionary_value", value_id,
-             details={"dictionary_id": dictionary_id, "value": shown})  # fmt: skip
+    if audit:
+        tx.audit("dictionary_value.create", "dictionary_value", value_id,
+                 details={"dictionary_id": dictionary_id, "value": shown})  # fmt: skip
     return get_dictionary_value(tx.conn, value_id)
 
 
@@ -407,7 +428,9 @@ def update_dictionary_value(
 ) -> dict[str, Any]:
     """Переименование значения сразу видно во всех записях: в них хранится ID."""
     current = get_dictionary_value(tx.conn, value_id)
-    shown = text.clean_name(value, "Значение") if value is not None else current["value"]
+    shown = (
+        text.clean_name(value, "Значение", MAX_VALUE) if value is not None else current["value"]
+    )
     extra = current["synonyms"] if synonyms is None else _clean_synonyms(synonyms, shown)
     extra = [item for item in extra if text.norm_name(item) != text.norm_name(shown)]
     _check_value_free(tx.conn, current["dictionary_id"], [shown, *extra], value_id)
@@ -560,12 +583,29 @@ def _bump_schema(tx: Tx, type_id: str) -> None:
 _TABLES = {"sites", "types", "fields", "datasets", "dictionaries", "dictionary_values"}
 
 
+def _new_id(tx: Tx, table: str, wanted: str | None) -> str:
+    """Новый UUID или заданный (при переносе); заданный должен быть свободен."""
+    assert table in _TABLES
+    if wanted is None:
+        return text.new_id()
+    if not text.is_uuid(wanted):
+        raise EngineError("entity_id", "ID должен быть UUID в нижнем регистре", field="id")
+    if tx.conn.execute(f"SELECT 1 FROM {table} WHERE id = ?", (wanted,)).fetchone():
+        raise EngineError("entity_exists", "Объект с таким ID уже есть", status=CONFLICT)
+    return wanted
+
+
 def _create_named(
-    tx: Tx, table: str, kind: str, name: str, extra: dict[str, Any]
+    tx: Tx,
+    table: str,
+    kind: str,
+    name: str,
+    extra: dict[str, Any],
+    wanted_id: str | None = None,
 ) -> dict[str, Any]:
     shown = text.clean_name(name)
     _check_name_free(tx.conn, table, shown, None)
-    entity_id = text.new_id()
+    entity_id = _new_id(tx, table, wanted_id)
     columns = ["id", "name", "name_norm", "created_at", "updated_at", *extra]
     values = [entity_id, shown, text.norm_name(shown), tx.now, tx.now, *extra.values()]
     marks = ",".join("?" * len(columns))

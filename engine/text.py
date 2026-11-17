@@ -36,17 +36,15 @@ def fold(value: object) -> str:
     return text.replace("ё", "е")
 
 
-def clean_name(value: object, what: str = "Название") -> str:
+def clean_name(value: object, what: str = "Название", limit: int = MAX_NAME) -> str:
     """Название для показа: без внешних пробелов, внутренние схлопнуты."""
     if not isinstance(value, str):
         raise EngineError("name_invalid", f"{what}: ожидается текст", field="name")
     text = _SPACES_RE.sub(" ", unicodedata.normalize("NFC", value)).strip()
     if not text:
         raise EngineError("name_empty", f"{what} не может быть пустым", field="name")
-    if len(text) > MAX_NAME:
-        raise EngineError(
-            "name_too_long", f"{what} длиннее {MAX_NAME} символов", field="name"
-        )
+    if len(text) > limit:
+        raise EngineError("name_too_long", f"{what} длиннее {limit} символов", field="name")
     return text
 
 
