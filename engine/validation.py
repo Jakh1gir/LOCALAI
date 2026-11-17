@@ -211,7 +211,7 @@ class Normalizer:
             return raw["id"]
         if not isinstance(raw, (str, int, float)) or isinstance(raw, bool):
             raise EngineError("value_choice", "Ожидается значение справочника", field=field.key)
-        shown = text.clean_name(str(raw), "Значение")
+        shown = text.clean_name(str(raw), "Значение", structure.MAX_VALUE)
         value_id = values["by_name"].get(text.norm_name(shown))
         if value_id is not None:
             if values["by_id"][value_id]["archived"] and not _was(old, value_id):

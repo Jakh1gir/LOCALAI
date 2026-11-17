@@ -6,7 +6,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-from engine import text
+from engine import snapshot, text
 from engine.database import Database
 from engine.errors import EngineError
 
@@ -91,20 +91,4 @@ def _apply(conn: sqlite3.Connection, number: int, name: str, sql: str) -> None:
 def _backup(
     conn: sqlite3.Connection, db_path: str, version: int, backup_dir: str | Path | None
 ) -> Path:
-    source = Path(db_path)
-    folder = Path(backup_dir) if backup_dir else source.parent
-    folder.mkdir(parents=True, exist_ok=True)
-    stamp = text.now().replace(":", "").replace("-", "").replace(".", "")
-    target = folder / f"{source.stem}.schema{version:04d}.{stamp}.sqlite3"
-    copy = sqlite3.connect(target)
-    try:
-        conn.backup(copy)
-        verdict = copy.execute("PRAGMA integrity_check").fetchone()[0]
-    finally:
-        copy.close()
-    if verdict != "ok":
-        target.unlink(missing_ok=True)
-        raise EngineError(
-            "backup_failed", f"Копия перед миграцией не прошла проверку: {verdict}"
-        )
-    return target
+    return snapshot.take(conn, db_path, f"schema{version:04d}", backup_dir)

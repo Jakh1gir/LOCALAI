@@ -82,6 +82,8 @@ class Database:
             )
         self.path = str(path)
         self._local = threading.local()
+        # Потоки одного процесса ждут здесь, а не в цикле занятости SQLite.
+        self._write_lock = threading.Lock()
 
     def connect(self) -> sqlite3.Connection:
         conn = getattr(self._local, "conn", None)
@@ -115,13 +117,14 @@ class Database:
         conn = self.connect()
         if conn.in_transaction:
             raise EngineError("nested_write", "Транзакция записи уже открыта")
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            yield Tx(conn, actor)
-        except BaseException:
-            conn.execute("ROLLBACK")
-            raise
-        conn.execute("COMMIT")
+        with self._write_lock:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield Tx(conn, actor)
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
 
 
 def _open(path: str) -> sqlite3.Connection:
