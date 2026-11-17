@@ -1,0 +1,31 @@
+{
+  "name": "localai-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": "^22.18.0 || >=24.0.0"
+  },
+  "scripts": {
+    "api:types": "openapi-typescript ../docs/contract/openapi.json --default-non-nullable false -o src/api/contract.d.ts",
+    "dev": "vite",
+    "build": "npm run api:types && vite build",
+    "check": "npm run api:types && svelte-check --tsconfig ./tsconfig.json",
+    "test": "node --test tests/*.test.ts",
+    "test:browser": "npm run build && node --test tests/browser/*.test.ts"
+  },
+  "dependencies": {
+    "svelte": "5.57.3",
+    "tabulator-tables": "6.7.1"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/node": "24.10.1",
+    "@types/tabulator-tables": "6.3.6",
+    "openapi-typescript": "7.13.0",
+    "playwright-core": "1.65.1",
+    "svelte-check": "4.7.8",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  }
+}

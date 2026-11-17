@@ -10,6 +10,7 @@ from pathlib import Path
 from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
+WEB = ROOT / "web"
 
 
 def _ruff_command() -> list[str] | None:
@@ -19,10 +20,10 @@ def _ruff_command() -> list[str] | None:
     return [executable] if executable else None
 
 
-def _run(label: str, command: list[str]) -> int:
+def _run(label: str, command: list[str], cwd: Path) -> int:
     print(f"\nЗапуск {label}", flush=True)
     try:
-        status = subprocess.run(command, cwd=ROOT, check=False).returncode
+        status = subprocess.run(command, cwd=cwd, check=False).returncode
     except OSError as error:
         print(f"Не удалось запустить {label}. {error}", file=sys.stderr)
         return 1
@@ -34,26 +35,35 @@ def _run(label: str, command: list[str]) -> int:
 def main() -> int:
     started = perf_counter()
     steps = [
-        ("pytest", [sys.executable, "-m", "pytest"]),
-        ("OpenAPI", [sys.executable, "-m", "server.openapi", "--check"]),
+        ("pytest", [sys.executable, "-m", "pytest"], ROOT),
+        ("OpenAPI", [sys.executable, "-m", "server.openapi", "--check"], ROOT),
     ]
+    node = shutil.which("node")
+    if node:
+        npm = shutil.which("npm") or "npm"
+        steps.extend(
+            [
+                ("npm run check", [npm, "run", "check"], WEB),
+                ("npm run test", [npm, "run", "test"], WEB),
+            ]
+        )
     ruff = _ruff_command()
     if ruff:
         steps.extend(
             [
-                ("ruff check", [*ruff, "check"]),
-                ("ruff format --check", [*ruff, "format", "--check"]),
+                ("ruff check", [*ruff, "check"], ROOT),
+                ("ruff format --check", [*ruff, "format", "--check"], ROOT),
             ]
         )
 
     passed = []
     skipped = []
     status = 0
-    for index, (label, command) in enumerate(steps):
-        status = _run(label, command)
+    for index, (label, command, cwd) in enumerate(steps):
+        status = _run(label, command, cwd)
         if status != 0:
             print(f"\nПроверка {label} завершилась с кодом {status}.", file=sys.stderr)
-            skipped = [step for step, _ in steps[index + 1 :]]
+            skipped = [step for step, _, _ in steps[index + 1 :]]
             break
         passed.append(label)
 
@@ -62,6 +72,8 @@ def main() -> int:
         print(f"Прошли {', '.join(passed)}.")
     else:
         print("Успешных шагов нет.")
+    if node is None:
+        print("Проверки интерфейса пропущены. Node.js не найден в PATH.")
     if ruff is None:
         print("Проверка стиля пропущена. Ruff не найден в активном Python или PATH.")
     if skipped:
