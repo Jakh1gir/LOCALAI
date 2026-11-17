@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru" data-screen="inspector">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Инспектор записи · LOCALAI</title>
+  <script src="ui.js"></script>
+  <link rel="stylesheet" href="../src/tokens.css" />
+  <link rel="stylesheet" href="mockups.css" />
+  <script src="registry.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#work">К рабочей области</a>
+  <div class="app">
+    <aside class="rail" data-rail></aside>
+    <div class="workspace">
+      <header class="topbar" data-topbar></header>
+      <main class="work" id="work" tabindex="-1">
+        <header class="page-heading">
+          <div>
+            <h1>В эксплуатации</h1>
+            <p>ТЭЦ-1 <span aria-hidden="true">·</span> Реестр оборудования</p>
+          </div>
+          <a class="button" data-page-link href="registry.html">
+            <span data-icon="left"></span>К реестру
+          </a>
+        </header>
+        <div class="split">
+          <section class="panel" aria-label="Реестр оборудования">
+            <div class="section-heading">
+              <h2>Оборудование</h2>
+              <span class="muted">Выбрана запись <strong class="code">10LAC10AP001</strong></span>
+            </div>
+            <div class="scroll-table inspector-table" tabindex="0" role="region" aria-label="Строки реестра">
+              <table class="registry-table compact-table" aria-label="В эксплуатации">
+                <thead>
+                  <tr>
+                    <th scope="col">ККС</th>
+                    <th scope="col">Наименование</th>
+                    <th scope="col" class="align-end">Количество</th>
+                    <th scope="col">Состояние</th>
+                  </tr>
+                </thead>
+                <tbody data-rows></tbody>
+              </table>
+            </div>
+            <footer class="paging">
+              <span class="tabular" role="status" data-page-summary></span>
+              <div class="paging-controls" aria-label="Страницы реестра">
+                <button class="icon-button" aria-label="Предыдущие 50 строк" type="button" data-page-step="-1">
+                  <span data-icon="left"></span>
+                </button>
+                <span class="tabular" data-page-number></span>
+                <button class="icon-button" aria-label="Следующие 50 строк" type="button" data-page-step="1">
+                  <span data-icon="right"></span>
+                </button>
+              </div>
+            </footer>
+          </section>
+          <aside class="panel inspector" aria-labelledby="inspector-title">
+            <header class="inspector-title">
+              <div>
+                <h2 id="inspector-title">Насос питательный ПЭН-1</h2>
+                <div class="inspector-meta">
+                  <a class="text-link code" data-page-link href="kks.html">10LAC10AP001</a>
+                  <span class="badge" data-tone="good"><span class="badge-dot"></span>В работе</span>
+                  <span class="inspector-version">Версия 13</span>
+                </div>
+              </div>
+              <a class="icon-button" data-page-link href="registry.html" aria-label="Закрыть инспектор">
+                <span data-icon="close"></span>
+              </a>
+            </header>
+
+            <section class="inspector-section" aria-labelledby="details-title">
+              <h3 id="details-title">Данные записи</h3>
+              <dl class="details">
+                <div><dt>Инвентарный номер</dt><dd class="tabular">ЭК-0127</dd></div>
+                <div><dt>Изготовитель</dt><dd>Siemens</dd></div>
+                <div><dt>Количество</dt><dd class="tabular">3 ед.</dd></div>
+                <div><dt>Следующая проверка</dt><dd class="tabular">02.12.2026</dd></div>
+                <div><dt>Место установки</dt><dd>Машинный зал, блок 1</dd></div>
+                <div><dt>Акт проверки</dt><dd class="tabular">ПР-118 от 28.10.2026</dd></div>
+              </dl>
+            </section>
+
+            <section class="inspector-section" aria-labelledby="links-title">
+              <h3 id="links-title">Связи ККС</h3>
+              <ul class="inline-list">
+                <li><a class="text-link code" data-page-link href="kks.html">10LAC10AP001</a><span class="badge" data-tone="good">Объект</span></li>
+                <li><span class="code">10LAC10CT003</span><span class="badge">Сигнал</span></li>
+                <li><span class="code">10LAC10AP002</span><span class="badge">Связанный объект</span></li>
+              </ul>
+            </section>
+
+            <section class="inspector-section" aria-labelledby="history-title">
+              <h3 id="history-title">История версий</h3>
+              <ol class="history">
+                <li>
+                  <span class="badge" data-tone="good">v13</span>
+                  <div><strong>Количество</strong> <span class="tabular">2 → 3</span>
+                    <small><time datetime="2026-11-17T10:24:00+05:00">17.11.2026, 10:24</time> · А. Каримов</small></div>
+                </li>
+                <li>
+                  <span class="badge">v12</span>
+                  <div><strong>Состояние</strong> В резерве → В работе
+                    <small><time datetime="2026-11-15T14:08:00+05:00">15.11.2026, 14:08</time> · Л. Турсунова</small></div>
+                </li>
+                <li>
+                  <span class="badge">v11</span>
+                  <div><strong>Следующая проверка</strong> <span class="tabular">28.11 → 02.12.2026</span>
+                    <small><time datetime="2026-11-14T09:15:00+05:00">14.11.2026, 09:15</time> · А. Каримов</small></div>
+                </li>
+              </ol>
+            </section>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
