@@ -158,3 +158,17 @@ class UserCreate(Body):
 class UserPatch(Body):
     name: str | None = None
     role_id: str | None = None
+
+
+class BackupCreate(Body):
+    password: str
+    label: str | None = None
+
+
+class BackupRestore(Body):
+    password: str
+
+
+class NetworkCreate(Body):
+    network: str
+    note: str | None = None

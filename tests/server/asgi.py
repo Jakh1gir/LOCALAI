@@ -31,8 +31,16 @@ class Client:
     """Клиент от имени пользователя. По умолчанию — администратор: его создаёт
     сам клиент, как это сделал бы установщик (``python -m server.admin``)."""
 
-    def __init__(self, app: Any, *, login: str | None = ADMIN_LOGIN, password: str = "") -> None:
+    def __init__(
+        self,
+        app: Any,
+        *,
+        login: str | None = ADMIN_LOGIN,
+        password: str = "",
+        address: str = "127.0.0.1",
+    ) -> None:
         self.app = app
+        self.address = address  # адрес рабочего места, с которого идёт запрос
         self.cookie: str | None = None
         if login == ADMIN_LOGIN and not password:
             ensure_admin(app.state.db)
@@ -93,7 +101,7 @@ class Client:
             "query_string": urlencode(query or {}).encode(),
             "root_path": "",
             "headers": headers,
-            "client": ("127.0.0.1", 50000),
+            "client": (self.address, 50000),
             "server": ("testserver", 80),
             "state": {},
         }

@@ -10,7 +10,7 @@
 - Идентификаторы — UUID. Время — строка UTC `2026-11-17T09:30:00.000Z`.
 - Список без страниц отдаётся как `{"items": [...]}`; страницы записей — как описано в языке запросов.
 - **Ожидаемая версия.** Изменение записи несёт `expected_version`. Если запись успели изменить, сервер отвечает `409 version_conflict` и текущей версией в `details.current_version`; интерфейс показывает отличия, а не затирает чужую правку (DATA-04).
-- **Идемпотентность.** Каждый изменяющий запрос обязан нести заголовок `Idempotency-Key` (до 128 символов); без него — `400 idempotency_key_required`. Повтор с тем же ключом возвращает прежний ответ и ничего не меняет; тот же ключ с другим телом — `409 idempotency_mismatch` (API-06). Чтение (`GET`, а также `POST …/records/query` и `…/records/count`) ключа не требует. Вход, выход и смена своего пароля ключа не требуют и не повторяются по нему: в отпечатке запроса оказался бы пароль. Ключ принадлежит пользователю: тот же ключ у другого пользователя — отдельный запрос.
+- **Идемпотентность.** Каждый изменяющий запрос обязан нести заголовок `Idempotency-Key` (до 128 символов); без него — `400 idempotency_key_required`. Повтор с тем же ключом возвращает прежний ответ и ничего не меняет; тот же ключ с другим телом — `409 idempotency_mismatch` (API-06). Чтение (`GET`, а также `POST …/records/query` и `…/records/count`) ключа не требует. Вход, выход, смена своего пароля и действия с резервными копиями ключа не требуют и не повторяются по нему: в отпечатке запроса оказался бы пароль, а результат копии — файл, а не строки базы. Ключ принадлежит пользователю: тот же ключ у другого пользователя — отдельный запрос.
 - **Одно действие — одна транзакция.** При любой ошибке не остаётся ни частичных данных, ни строки аудита.
 - **Вход обязателен.** Кроме `POST /auth/login` и `GET /system/health`, каждый маршрут требует сессии и права, объявленного у маршрута (`x-permission` в `openapi.json`); маршрут без права не собирается (API-02). Права и правила — в разделе «Вход и права».
 - Тело запроса — до 10 МиБ; больше — `413 request_too_large`. Лишние поля в теле отклоняются.
@@ -26,11 +26,11 @@
 
 | HTTP | Когда | Примеры кодов |
 | --- | --- | --- |
-| 400 | Неверные данные или запрос | `password_wrong`, `password_too_short`, `password_same`, `login_invalid`, `login_taken`, `permission_invalid`, `request_invalid`, `request_json`, `idempotency_key_required`, `value_required`, `value_number`, `value_precision`, `value_out_of_range`, `value_date`, `value_choice`, `value_choice_archived`, `field_unknown`, `field_archived`, `field_change`, `name_taken`, `name_empty`, `query_invalid`, `kks_archived`, `kks_unknown`, `kks_too_long`, `rollback_invalid`, `dataset_parent_archived` |
-| 404 | Объект или адрес не найден | `route_not_found`, `record_not_found`, `dataset_not_found`, `type_not_found`, `kks_not_found`, `version_missing` |
+| 400 | Неверные данные или запрос | `backup_password`, `backup_corrupt`, `backup_format`, `schema_newer`, `network_invalid`, `password_wrong`, `password_too_short`, `password_same`, `login_invalid`, `login_taken`, `permission_invalid`, `request_invalid`, `request_json`, `idempotency_key_required`, `value_required`, `value_number`, `value_precision`, `value_out_of_range`, `value_date`, `value_choice`, `value_choice_archived`, `field_unknown`, `field_archived`, `field_change`, `name_taken`, `name_empty`, `query_invalid`, `kks_archived`, `kks_unknown`, `kks_too_long`, `rollback_invalid`, `dataset_parent_archived` |
+| 404 | Объект или адрес не найден | `backup_not_found`, `route_not_found`, `record_not_found`, `dataset_not_found`, `type_not_found`, `kks_not_found`, `version_missing` |
 | 401 | Нет входа, сессия закрыта или истекла; неверный логин или пароль | `auth_required`, `session_invalid`, `session_expired`, `login_failed` |
-| 403 | Недостаточно прав; учётная запись заблокирована; нужно сменить временный пароль | `forbidden` (`details.permission`), `field_forbidden` (`field`), `user_blocked`, `password_change_required` |
-| 409 | Конфликт с текущим состоянием | `version_conflict`, `record_archived`, `kks_code_taken`, `idempotency_mismatch`, `last_admin` |
+| 403 | Недостаточно прав; учётная запись заблокирована; нужно сменить временный пароль; адрес не в списке разрешённых | `forbidden` (`details.permission`), `field_forbidden` (`field`), `user_blocked`, `password_change_required`, `address_not_allowed` |
+| 409 | Конфликт с текущим состоянием | `version_conflict`, `record_archived`, `kks_code_taken`, `idempotency_mismatch`, `last_admin`, `network_lockout` |
 | 413 | Тело запроса больше 10 МиБ | `request_too_large` |
 | 429 | Слишком много неудачных входов | `login_locked` (`details.locked_until`), `login_throttled` |
 
@@ -73,12 +73,13 @@
 | `session` | вошедший | чтение структуры и каталога ККС, `GET /auth/permissions` |
 | `section.structure` | роль с разделом «Структура» | изменение площадок, типов, полей, реестров, справочников |
 | `section.kks` | роль с разделом «Каталог ККС» | изменение каталога ККС |
-| `section.admin` | роль с разделом «Администрирование» | пользователи, роли, журнал |
+| `section.admin` | роль с разделом «Администрирование» | пользователи, роли, журнал, разрешённые адреса |
+| `section.backups` | роль с разделом «Копии» | резервные копии |
 | `dataset.view`, `.create`, `.edit`, `.archive` | роль с этим действием над реестром из пути (или реестром записи) | маршруты записей, `GET /datasets/{id}` |
 
 - `GET /datasets` показывает только реестры, которые роль может видеть. Карточка ККС считает связи только в таких реестрах.
 - **Ограничения полей.** Скрытое поле (`hidden`) не приходит в документах записей, истории, версиях и в `GET /types/{id}` (кроме роли с разделом «Структура»); по нему нельзя фильтровать и сортировать (`400 query_invalid`), поиск его не видит. Изменение скрытого или закрытого для правки поля (`readonly`) — `403 field_forbidden` с ключом поля; откат, который изменил бы такое поле, тоже отклоняется. Если у роли есть скрытые поля реестра, поиск идёт перебором видимых значений, а не по индексу: он медленнее, а даты ищутся в виде `2024-03-15`.
-- Импорт и экспорт (`dataset.import`, `dataset.export`), разделы «ИИ», «Инструменты», «Табель», «Копии» и права на типы документов хранятся в матрице уже сейчас и начнут действовать вместе со своими маршрутами.
+- Импорт и экспорт (`dataset.import`, `dataset.export`), разделы «ИИ», «Инструменты», «Табель» и права на типы документов хранятся в матрице уже сейчас и начнут действовать вместе со своими маршрутами.
 
 ### Пользователи и роли
 
@@ -118,6 +119,26 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 ```
 
 Пароль вводится дважды или передаётся первой строкой ввода с `--password-stdin`. Команда `reset-password --login …` выдаёт временный пароль, если единственный администратор забыл свой.
+
+## Резервные копии
+
+Все маршруты — `section.backups`. Копии лежат в папке сервера (по умолчанию `backups` рядом с базой; `python -m server --backups <папка>`).
+
+| Метод и путь | Тело запроса | Ответ |
+| --- | --- | --- |
+| `GET /backups` | — | копии от новых к старым |
+| `POST /backups` | `{password, label?}` | копия, `201` |
+| `GET /backups/{name}/file` | — | файл копии (`application/octet-stream`) |
+| `POST /backups/{name}/restore` | `{password}` | `{restored, protective_backup, schema_version}` |
+
+Копия в списке: `{name, size, created_at, label, schema_version, database_id, app_version}`. Файл, который не читается как копия, приходит с полем `error`.
+
+- **Копия зашифрована** (SEC-09): AES-256-GCM, ключ из пароля через Argon2id. Пароль — от 12 символов, в базе не хранится; без него копию не восстановить. Время, подпись и версия схемы читаются без пароля, чтобы показать список.
+- Копия делается из согласованного снимка базы и проверяется (`integrity_check`) до шифрования. Работа других пользователей во время копии не останавливается.
+- **Восстановление** сначала расшифровывает и проверяет копию: неверный пароль — `400 backup_password`, повреждённый или обрезанный файл — `400 backup_corrupt`, копия от более новой программы — `400 schema_newer`. Пока проверка не пройдена, база не меняется.
+- Перед заменой базы текущее состояние упаковывается **тем же паролем** в защитную копию с подписью «Перед восстановлением» (SEC-09); ошибочное восстановление отменяется восстановлением из неё.
+- После восстановления схема доводится до текущей версии, а **все сессии закрываются**: входят заново, по учётным записям из копии. В журнал восстановленной базы пишется `backup.restore` с именем защитной копии.
+- Копию с другой машины кладут в папку копий сервера; загрузки файла через API нет: тело запроса ограничено 10 МиБ.
 
 ## Структура
 
@@ -236,6 +257,13 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | Метод и путь | Ответ |
 | --- | --- |
 | `GET /audit?entity_id=&dataset_id=&before=&limit=` | события от новых к старым; `before` — `seq` последнего события предыдущей страницы |
+| `GET /system/allowed-ips` | разрешённые сети: `{id, network, note, created_at}` |
+| `POST /system/allowed-ips` | `{network, note?}` — адрес `10.0.5.7` или сеть `10.0.5.0/24`; ответ — запись списка, `201` |
+| `DELETE /system/allowed-ips/{id}` | — |
 | `GET /system/health` | `{"status": "ok", "version": "0.1.0", "schema_version": 4, "database_id": "…", "setup_required": false}`; `setup_required` — в базе ещё нет ни одного пользователя |
 
-Событие журнала: `{seq, at, actor_id, actor_label, origin, action, entity_kind, entity_id, dataset_id, details}`. `action` имеет вид `record.update`, `kks.rename`, `field.create`. События доступа: `auth.login`, `auth.login_failed` (в `details` — введённый логин и причина), `auth.logout`, `user.create`, `user.update`, `user.block`, `user.unblock`, `user.password_reset`, `user.password_change`, `role.create`, `role.update`, `role.archive`, `role.restore`, `role.permissions` (в `details` — добавленные и снятые права). `actor_id` — UUID учётной записи (ROLE-04).
+Разрешённые адреса (SEC-04) — `section.admin`. Пустой список пропускает любой адрес; непустой — только адреса из своих сетей, остальным любой маршрут, в том числе вход, отвечает `403 address_not_allowed`. Адрес самого сервера (`127.0.0.1`, `::1`) пропускается всегда. Изменение, после которого адрес администратора, сделавшего его, окажется вне списка, отклоняется — `409 network_lockout`.
+
+**HTTPS** (SEC-04). По умолчанию сервер слушает только `127.0.0.1`. В сети он запускается только с сертификатом: `python -m server.admin --db … create-certificate --host <имя> --host <адрес>` создаёт ключ и самоподписанный сертификат в папке `tls` рядом с базой и печатает отпечаток SHA-256 для сверки в браузере. Без сертификата `python -m server --host 0.0.0.0` не запускается. По HTTPS cookie сессии получает признак `Secure`.
+
+Событие журнала: `{seq, at, actor_id, actor_label, origin, action, entity_kind, entity_id, dataset_id, details}`. `action` имеет вид `record.update`, `kks.rename`, `field.create`. События доступа: `auth.login`, `auth.login_failed` (в `details` — введённый логин и причина), `auth.logout`, `user.create`, `user.update`, `user.block`, `user.unblock`, `user.password_reset`, `user.password_change`, `role.create`, `role.update`, `role.archive`, `role.restore`, `role.permissions` (в `details` — добавленные и снятые права), `backup.create`, `backup.restore`, `network.allow`, `network.remove`. `actor_id` — UUID учётной записи (ROLE-04).

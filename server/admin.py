@@ -8,6 +8,9 @@
 ``reset-password --login …`` выдаёт временный пароль, если единственный
 администратор забыл свой. Команда доступна только тому, у кого есть доступ к
 файлу базы на сервере, и пишется в журнал.
+
+``create-certificate --host <имя> --host <адрес>`` создаёт сертификат HTTPS
+для сетевого режима в папке ``tls`` рядом с базой (SEC-04).
 """
 
 from __future__ import annotations
@@ -15,8 +18,10 @@ from __future__ import annotations
 import argparse
 import getpass
 import sys
+from pathlib import Path
 
 from engine import Actor, EngineError, access, open_database
+from server import tls
 
 CONSOLE = Actor(None, "Командная строка сервера", "system")
 
@@ -33,7 +38,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     reset = commands.add_parser("reset-password", help="выдать временный пароль")
     reset.add_argument("--login", required=True)
+    certificate = commands.add_parser("create-certificate", help="сертификат HTTPS")
+    certificate.add_argument(
+        "--host", action="append", required=True, help="имя или адрес сервера; можно несколько"
+    )
+    certificate.add_argument("--replace", action="store_true", help="заменить прежний")
     args = parser.parse_args(argv)
+    if args.command == "create-certificate":
+        return _certificate(tls_folder(args.db), args.host, args.replace)
     db = open_database(args.db)
     try:
         if args.command == "create-admin":
@@ -52,6 +64,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         db.close()
+    return 0
+
+
+def tls_folder(db_path: str) -> Path:
+    return Path(db_path).resolve().parent / "tls"
+
+
+def _certificate(folder: Path, hosts: list[str], replace: bool) -> int:
+    try:
+        digest = tls.create(folder, hosts, replace=replace)
+    except EngineError as error:
+        print(f"Ошибка: {error.message}", file=sys.stderr)
+        return 1
+    print(f"Сертификат создан: {folder / tls.CERT}")
+    print(f"Отпечаток SHA-256: {digest}")
+    print("Сверьте отпечаток в браузере рабочего места при первом входе.")
     return 0
 
 
