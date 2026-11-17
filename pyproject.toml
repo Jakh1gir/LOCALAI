@@ -1,0 +1,30 @@
+[project]
+name = "localai"
+version = "0.1.0"
+description = "LOCALAI: единая инженерная база с каталогом ККС и встроенным ИИ"
+requires-python = ">=3.13"
+# Пакет engine использует только стандартную библиотеку. Зависимости сервера
+# и ИИ-службы добавляются вместе с их кодом.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["engine*", "server*", "ai*"]
+
+[tool.setuptools.package-data]
+engine = ["migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
