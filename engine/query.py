@@ -53,18 +53,22 @@ def list_records(
     schema = structure.load_schema(conn, dataset["type_id"])
     compiled = _compile(conn, dataset, schema, query)
     limit = _limit(query.get("limit"))
-    where, params = list(compiled.where), list(compiled.params)
+    segments: list[tuple[str | None, list[Any]]] = [(None, [])]
     if query.get("cursor"):
-        sql, extra = _after_cursor(compiled, query["cursor"])
-        where.append(sql)
-        params.extend(extra)
+        segments = _after_cursor(compiled, query["cursor"])
     way = "DESC" if compiled.descending else "ASC"
-    rows = conn.execute(
-        f"SELECT {_COLUMNS}, {compiled.sort_sql} AS sort_value FROM records"
-        f" WHERE {' AND '.join(where)}"
-        f" ORDER BY sort_value {way}, seq {way} LIMIT ?",
-        (*params, limit + 1),
-    ).fetchall()
+    rows: list[sqlite3.Row] = []
+    for condition, extra in segments:
+        wanted = limit + 1 - len(rows)
+        if wanted <= 0:
+            break
+        where = [*compiled.where, *([condition] if condition else [])]
+        rows += conn.execute(
+            f"SELECT {_COLUMNS}, {compiled.sort_sql} AS sort_value FROM records"
+            f" WHERE {' AND '.join(where)}"
+            f" ORDER BY sort_value {way}, seq {way} LIMIT ?",
+            (*compiled.params, *extra, wanted),
+        ).fetchall()
     page = rows[:limit]
     items = [_item(row, dataset_id) for row in page]
     cursor = None
@@ -98,7 +102,7 @@ def _compile(
 ) -> _Compiled:
     unknown = set(query) - {"where", "search", "sort", "limit", "cursor", "archived", "kks"}
     if unknown:
-        raise _bad(f"Неизвестный параметр запроса: {sorted(unknown)[0]}")
+        raise _bad(f"Неизвестный параметр запроса: {min(unknown)}")
     out = _Compiled(where=["dataset_seq = ?"], params=[dataset["seq"]])
     archived = query.get("archived", False)
     if archived is False:
@@ -114,9 +118,7 @@ def _compile(
     for condition in conditions:
         out.where.append(builder.build(condition))
     if query.get("kks"):
-        out.where.append(
-            "seq IN (SELECT record_seq FROM record_kks_links WHERE kks_id = ?)"
-        )
+        out.where.append("seq IN (SELECT record_seq FROM record_kks_links WHERE kks_id = ?)")
         out.params.append(query["kks"])
     if query.get("search"):
         found = fulltext.search_sql(schema, dataset["site_id"], str(query["search"]))
@@ -156,7 +158,9 @@ class _Conditions:
         if not isinstance(condition, dict) or set(condition) - {"field", "op", "value"}:
             raise _bad("Условие: поля field, op, value")
         name, op, value = condition.get("field"), condition.get("op"), condition.get("value")
-        if op not in _OPS:
+        if not isinstance(name, str):
+            raise _bad("Условие: в field нужен ключ поля", "field")
+        if not isinstance(op, str) or op not in _OPS:
             raise _bad(f"Неизвестная операция: {op}", name)
         if name in _SYSTEM:
             column, kind = _SYSTEM[name]
@@ -242,7 +246,7 @@ class _Conditions:
         """Условие по полю ККС идёт через таблицу связей и её индекс по объекту."""
         links = "SELECT l.record_seq FROM record_kks_links l"
         if op in _TEXT_OPS:
-            needle = str(_required(value, found.key)).strip().upper()
+            needle = text.kks_needle(_required(value, found.key))
             self.params.extend([found.key, self.site_id, needle])
             test = "> 0" if op == "contains" else "= 1"
             return (
@@ -285,6 +289,8 @@ def _sort(schema: structure.TypeSchema, sort: Any, out: _Compiled) -> None:
     if not isinstance(sort, list) or len(sort) != 1 or not isinstance(sort[0], dict):
         raise _bad("Сортировка: одно поле вида {field, dir}")
     name, way = sort[0].get("field"), sort[0].get("dir", "asc")
+    if not isinstance(name, str):
+        raise _bad("Сортировка: в field нужен ключ поля", "sort")
     if way not in ("asc", "desc"):
         raise _bad("Направление сортировки: asc или desc", name)
     out.descending = way == "desc"
@@ -314,7 +320,14 @@ def _encode_cursor(tag: str, value: Any, seq: int) -> str:
     return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
 
-def _after_cursor(compiled: _Compiled, cursor: Any) -> tuple[str, list[Any]]:
+def _after_cursor(compiled: _Compiled, cursor: Any) -> list[tuple[str | None, list[Any]]]:
+    """Условия для строк после курсора — по частям, в порядке выдачи.
+
+    Пустые значения идут первыми при ``asc`` и последними при ``desc``.
+    Строки с пустым и непустым значением запрашиваются отдельно: так каждая
+    часть сразу встаёт по индексу на место курсора, а не перебирает
+    уже пройденные строки (API-05).
+    """
     try:
         padded = str(cursor) + "=" * (-len(str(cursor)) % 4)
         tag, value, seq = json.loads(base64.urlsafe_b64decode(padded.encode()))
@@ -325,15 +338,17 @@ def _after_cursor(compiled: _Compiled, cursor: Any) -> tuple[str, list[Any]]:
         raise _bad("Курсор получен для другой сортировки; начните с первой страницы")
     expr = compiled.sort_sql
     if expr == "seq":
-        return ("seq < ?" if compiled.descending else "seq > ?"), [seq]
+        return [("seq < ?" if compiled.descending else "seq > ?", [seq])]
     if compiled.descending:
         if value is None:
-            return f"({expr} IS NULL AND seq < ?)", [seq]
-        return f"({expr} < ? OR ({expr} = ? AND seq < ?) OR {expr} IS NULL)", [value, value, seq]
+            return [(f"{expr} IS NULL AND seq < ?", [seq])]
+        return [
+            (f"{expr} <= ? AND ({expr} < ? OR seq < ?)", [value, value, seq]),
+            (f"{expr} IS NULL", []),
+        ]
     if value is None:
-        return f"({expr} IS NOT NULL OR seq > ?)", [seq]
-    # Граница «>=» позволяет индексу сразу встать на место курсора.
-    return f"({expr} >= ? AND ({expr} > ? OR seq > ?))", [value, value, seq]
+        return [(f"{expr} IS NULL AND seq > ?", [seq]), (f"{expr} IS NOT NULL", [])]
+    return [(f"{expr} >= ? AND ({expr} > ? OR seq > ?)", [value, value, seq])]
 
 
 def _tag_hash(tag: str) -> str:
@@ -377,9 +392,7 @@ def _choice_id(known: dict[str, Any], item: Any) -> str | None:
 
 
 def _bad(message: str, name: Any = None) -> EngineError:
-    return EngineError(
-        "query_invalid", message, field=name if isinstance(name, str) else None
-    )
+    return EngineError("query_invalid", message, field=name if isinstance(name, str) else None)
 
 
 def _item(row: sqlite3.Row, dataset_id: str) -> dict[str, Any]:

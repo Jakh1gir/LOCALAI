@@ -35,14 +35,18 @@ def test_new_type_field_and_dataset_need_no_migration(db, plant):
 def test_rename_changes_nothing_but_the_label(db, plant):
     keys = plant["keys"]
     with db.write(ENGINEER) as tx:
-        record = records.create(tx, plant["dataset"]["id"], {keys["kks"]: "A1", keys["name"]: "Насос"})
+        record = records.create(
+            tx, plant["dataset"]["id"], {keys["kks"]: "A1", keys["name"]: "Насос"}
+        )
         structure.update_field(tx, plant["fields"]["name"]["id"], name="Название оборудования")
         structure.rename_type(tx, plant["type"]["id"], "Оборудование ТЭЦ")
         structure.rename_dataset(tx, plant["dataset"]["id"], "Эксплуатация-2026")
     with db.read() as conn:
         kind = structure.get_type(conn, plant["type"]["id"])
         same = records.get(conn, record["id"])
-    renamed = next(field for field in kind["fields"] if field["id"] == plant["fields"]["name"]["id"])
+    renamed = next(
+        field for field in kind["fields"] if field["id"] == plant["fields"]["name"]["id"]
+    )
     assert renamed["key"] == keys["name"] and renamed["name"] == "Название оборудования"
     assert same["doc"][keys["name"]] == "Насос" and same["version"] == 1
     assert kind["schema_rev"] > plant["type"]["schema_rev"]
@@ -58,9 +62,8 @@ def test_names_are_unique_ignoring_case_and_spaces(db, plant):
         ),
         lambda tx: structure.add_dictionary_value(tx, plant["makers"]["id"], "сименс"),
     ):
-        with pytest.raises(EngineError) as caught:
-            with db.write(ENGINEER) as tx:
-                action(tx)
+        with pytest.raises(EngineError) as caught, db.write(ENGINEER) as tx:
+            action(tx)
         assert caught.value.code in {"name_taken", "value_taken"}
 
 
@@ -75,17 +78,15 @@ def test_archived_field_keeps_values_and_leaves_search(db, plant):
         kept = records.get(conn, record["id"])["doc"][keys["name"]]
         found = query.list_records(conn, plant["dataset"]["id"], {"search": "секретный"})
     assert kept == "Секретный насос" and found["items"] == []
-    with pytest.raises(EngineError) as caught:
-        with db.write(ENGINEER) as tx:
-            records.update(tx, record["id"], {keys["name"]: "x"}, 1)
+    with pytest.raises(EngineError) as caught, db.write(ENGINEER) as tx:
+        records.update(tx, record["id"], {keys["name"]: "x"}, 1)
     assert caught.value.code == "field_archived"
 
 
 def test_failed_action_leaves_no_trace(db, plant):
-    with pytest.raises(RuntimeError):
-        with db.write(ENGINEER) as tx:
-            structure.create_type(tx, "Временный")
-            raise RuntimeError("сбой посреди действия")
+    with pytest.raises(RuntimeError), db.write(ENGINEER) as tx:
+        structure.create_type(tx, "Временный")
+        raise RuntimeError("сбой посреди действия")
     with db.read() as conn:
         names = [kind["name"] for kind in structure.list_types(conn)]
         events = conn.execute(
@@ -156,9 +157,7 @@ def test_broken_migration_changes_nothing(tmp_path, monkeypatch):
 
 # Правила репозитория -----------------------------------------------------------
 
-_PYTHON = [
-    path for folder in ("engine", "server", "ai") for path in (ROOT / folder).rglob("*.py")
-]
+_PYTHON = [path for folder in ("engine", "server", "ai") for path in (ROOT / folder).rglob("*.py")]
 
 
 def test_engine_does_not_import_other_components():

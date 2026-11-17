@@ -24,9 +24,8 @@ def test_code_is_unique_per_site_ignoring_case(db, plant):
         other_site = structure.create_site(tx, "ТЭЦ-2")
         twin = kks.create(tx, other_site["id"], "10LAC10AP001")
     assert twin["id"] != first["doc"][key]  # на другой площадке код свободен
-    with pytest.raises(EngineError) as caught:
-        with db.write(ENGINEER) as tx:
-            kks.create(tx, plant["site"]["id"], "10LAC10AP001")
+    with pytest.raises(EngineError) as caught, db.write(ENGINEER) as tx:
+        kks.create(tx, plant["site"]["id"], "10LAC10AP001")
     assert caught.value.code == "kks_code_taken"
 
 
@@ -46,9 +45,7 @@ def test_rename_keeps_uuid_links_and_old_code_as_alias(db, plant):
     assert page["refs"]["kks"][kks_id] == "10LAC10AP002"  # запись показывает новый код
     assert len(found["items"]) == 1  # поиск знает новый код
     assert [alias["alias"] for alias in card["aliases"]] == ["10LAC10AP001"]
-    assert card["usage"] == [
-        {"dataset_id": plant["dataset"]["id"], "role": "object", "records": 1}
-    ]
+    assert card["usage"] == [{"dataset_id": plant["dataset"]["id"], "role": "object", "records": 1}]
     with pytest.raises(EngineError) as caught:
         _ = _record(db, plant, "X1")
         with db.write(ENGINEER) as tx:
@@ -79,9 +76,8 @@ def test_archived_object_keeps_links_but_blocks_new_ones(db, plant):
     with pytest.raises(EngineError) as caught:
         _record(db, plant, "a1")
     assert caught.value.code == "kks_archived"
-    with pytest.raises(EngineError) as caught:
-        with db.write(ENGINEER) as tx:
-            kks.create(tx, plant["site"]["id"], "A1")  # код остаётся за объектом
+    with pytest.raises(EngineError) as caught, db.write(ENGINEER) as tx:
+        kks.create(tx, plant["site"]["id"], "A1")  # код остаётся за объектом
     assert caught.value.code == "kks_code_taken"
 
 
@@ -95,15 +91,19 @@ def test_route_points_keep_order(db, plant):
         end = structure.add_field(tx, cable["id"], "Куда", "kks", kks_role="route_end")
         cables = structure.create_dataset(tx, plant["site"]["id"], cable["id"], "Кабели")
         record = records.create(
-            tx, cables["id"],
+            tx,
+            cables["id"],
             {start["key"]: "ШУ-1", via["key"]: ["КК-1", "КК-2", "КК-1"], end["key"]: "ШУ-2"},
-        )  # fmt: skip
+        )
     with db.read() as conn:
         seq = conn.execute("SELECT seq FROM records WHERE id = ?", (record["id"],)).fetchone()[0]
         links = kks.record_links(conn, seq)
         objects = conn.execute("SELECT COUNT(*) FROM kks_objects").fetchone()[0]
-    route = [(link["role"], link["ordinal"], link["code"]) for link in links
-             if link["role"] == "route_via"]  # fmt: skip
+    route = [
+        (link["role"], link["ordinal"], link["code"])
+        for link in links
+        if link["role"] == "route_via"
+    ]
     assert route == [("route_via", 0, "КК-1"), ("route_via", 1, "КК-2"), ("route_via", 2, "КК-1")]
     assert len(links) == 5 and objects == 4  # повтор точки — тот же объект на другой позиции
     with db.read() as conn:

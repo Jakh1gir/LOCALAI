@@ -78,7 +78,14 @@ def _e(method: str, path: str, handler, permission: str, **extra: Any) -> Endpoi
 ENDPOINTS = [
     _e("POST", "/datasets/{id}/records/query", query_records, READ, body=schemas.RecordQuery),
     _e("POST", "/datasets/{id}/records/count", count_records, READ, body=schemas.RecordCount),
-    _e("POST", "/datasets/{id}/records", create_record, WRITE, body=schemas.RecordCreate, status=201),
+    _e(
+        "POST",
+        "/datasets/{id}/records",
+        create_record,
+        WRITE,
+        body=schemas.RecordCreate,
+        status=201,
+    ),
     _e("GET", "/records/{id}", get_record, READ),
     _e("PATCH", "/records/{id}", update_record, WRITE, body=schemas.RecordPatch),
     _e("POST", "/records/{id}/archive", archive_record, WRITE, body=schemas.VersionBody),

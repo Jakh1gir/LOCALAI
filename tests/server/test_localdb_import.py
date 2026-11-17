@@ -27,25 +27,54 @@ def source(tmp_path):
     folder.mkdir()
     base = standard(folder / "local_db.sqlite3")
     pump = base.record(
-        {"database_mode": OPERATION, "kks": ["10LAC10AP001"], "sensor": "Насос ПЭН-1",
-         "manufacturer": "Siemens", "installed_qty": 2, "power": "500.50",
-         "next_check_date": "2026-05-01", "notes": "проверить уплотнение"},
-        history=[("CREATE_RECORD", {"database_mode": OPERATION, "kks": ["10LAC10AP009"],
-                                    "sensor": "Насос ПЭН-1", "manufacturer": "Завод-1"})],
-    )  # fmt: skip
+        {
+            "database_mode": OPERATION,
+            "kks": ["10LAC10AP001"],
+            "sensor": "Насос ПЭН-1",
+            "manufacturer": "Siemens",
+            "installed_qty": 2,
+            "power": "500.50",
+            "next_check_date": "2026-05-01",
+            "notes": "проверить уплотнение",
+        },
+        history=[
+            (
+                "CREATE_RECORD",
+                {
+                    "database_mode": OPERATION,
+                    "kks": ["10LAC10AP009"],
+                    "sensor": "Насос ПЭН-1",
+                    "manufacturer": "Завод-1",
+                },
+            )
+        ],
+    )
     spare = base.record(
-        {"database_mode": "Склад", "kks": ["10LAC10AP001", "10LAC10AP002"],
-         "sensor": "Насос ПЭН-1 резервный", "manufacturer": "АББ старое", "installed_qty": 1},
-    )  # fmt: skip
-    similar = base.record({"database_mode": OPERATION, "kks": ["10LAC10 AP002"],
-                           "sensor": "Вентилятор"})  # fmt: skip
-    old = base.record({"database_mode": OPERATION, "kks": ["20BBA01"], "sensor": "Ячейка"},
-                      archived=True)  # fmt: skip
+        {
+            "database_mode": "Склад",
+            "kks": ["10LAC10AP001", "10LAC10AP002"],
+            "sensor": "Насос ПЭН-1 резервный",
+            "manufacturer": "АББ старое",
+            "installed_qty": 1,
+        },
+    )
+    similar = base.record(
+        {"database_mode": OPERATION, "kks": ["10LAC10 AP002"], "sensor": "Вентилятор"}
+    )
+    old = base.record(
+        {"database_mode": OPERATION, "kks": ["20BBA01"], "sensor": "Ячейка"}, archived=True
+    )
     base.audit("CREATE_RECORD", pump)
     base.audit("UPDATE_RECORD", pump)
     base.close()
-    return {"folder": folder, "file": folder / "local_db.sqlite3", "pump": pump,
-            "spare": spare, "similar": similar, "old": old}  # fmt: skip
+    return {
+        "folder": folder,
+        "file": folder / "local_db.sqlite3",
+        "pump": pump,
+        "spare": spare,
+        "similar": similar,
+        "old": old,
+    }
 
 
 @pytest.fixture
@@ -77,8 +106,13 @@ def test_dry_run_reports_everything_and_writes_nothing(source, target):
 
 
 def test_apply_transfers_structure_records_history_and_catalog(source, target, tmp_path):
-    report = run(target, source["folder"], Decisions(site_name="ТЭЦ-1"), apply=True,
-                 snapshot_dir=tmp_path / "snapshots")  # fmt: skip
+    report = run(
+        target,
+        source["folder"],
+        Decisions(site_name="ТЭЦ-1"),
+        apply=True,
+        snapshot_dir=tmp_path / "snapshots",
+    )
     assert report["mode"] == "applied", report["issues"]
     assert list((tmp_path / "snapshots").glob("*.before-localdb-import.*.sqlite3"))
     with target.read() as conn:
@@ -96,9 +130,10 @@ def test_apply_transfers_structure_records_history_and_catalog(source, target, t
         gone = kks.resolve(conn, site_id, "10LAC10AP009")
         found = query.list_records(conn, datasets[OPERATION]["id"], {"search": "siemens пэн"})
         by_synonym = query.count_records(
-            conn, datasets[OPERATION]["id"],
+            conn,
+            datasets[OPERATION]["id"],
             {"where": [{"field": "manufacturer", "op": "eq", "value": "Сименс"}]},
-        )  # fmt: skip
+        )
         events = conn.execute(
             "SELECT actor_label FROM audit_log WHERE origin = 'localdb'"
         ).fetchall()
@@ -132,7 +167,9 @@ def test_apply_transfers_structure_records_history_and_catalog(source, target, t
 
 def _value_id(db, value):
     with db.read() as conn:
-        return conn.execute("SELECT id FROM dictionary_values WHERE value = ?", (value,)).fetchone()[0]
+        return conn.execute(
+            "SELECT id FROM dictionary_values WHERE value = ?", (value,)
+        ).fetchone()[0]
 
 
 def test_repeat_import_adds_only_new_data_and_keeps_local_edits(source, target):
@@ -144,17 +181,30 @@ def test_repeat_import_adds_only_new_data_and_keeps_local_edits(source, target):
         records.update(tx, source["spare"], {"installed_qty": 5}, spare_before["version"])
     base = LocalDb.__new__(LocalDb)
     base.conn = sqlite3.connect(source["file"])
-    base.fields = {row[0]: {"id": row[1], "type": row[2], "dictionary_id": row[3]}
-                   for row in base.conn.execute(
-                       "SELECT code, id, data_type, dictionary_id FROM field_definitions")}  # fmt: skip
-    base.dictionaries = {code: meta["dictionary_id"] for code, meta in base.fields.items()
-                         if meta["dictionary_id"]}  # fmt: skip
+    base.fields = {
+        row[0]: {"id": row[1], "type": row[2], "dictionary_id": row[3]}
+        for row in base.conn.execute(
+            "SELECT code, id, data_type, dictionary_id FROM field_definitions"
+        )
+    }
+    base.dictionaries = {
+        code: meta["dictionary_id"] for code, meta in base.fields.items() if meta["dictionary_id"]
+    }
     base.records = dict(base.conn.execute("SELECT uuid, id FROM records"))
     base.table_id = 1
-    base.update(source["pump"], {"database_mode": OPERATION, "kks": ["10LAC10AP001"],
-                                 "sensor": "Насос ПЭН-1", "manufacturer": "ABB"})  # fmt: skip
-    base.update(source["spare"], {"database_mode": "Склад", "kks": ["10LAC10AP001"],
-                                  "sensor": "Насос ПЭН-1 резервный"})  # fmt: skip
+    base.update(
+        source["pump"],
+        {
+            "database_mode": OPERATION,
+            "kks": ["10LAC10AP001"],
+            "sensor": "Насос ПЭН-1",
+            "manufacturer": "ABB",
+        },
+    )
+    base.update(
+        source["spare"],
+        {"database_mode": "Склад", "kks": ["10LAC10AP001"], "sensor": "Насос ПЭН-1 резервный"},
+    )
     fresh = base.record({"database_mode": "Склад", "kks": ["30XYZ01"], "sensor": "Задвижка"})
     base.audit("UPDATE_RECORD", source["pump"])
     base.close()
@@ -177,8 +227,12 @@ def test_repeat_import_adds_only_new_data_and_keeps_local_edits(source, target):
 
 def test_bad_value_refuses_whole_import(source, target):
     base = sqlite3.connect(source["file"])
-    record_id = base.execute("SELECT id FROM records WHERE uuid = ?", (source["similar"],)).fetchone()[0]
-    field_id = base.execute("SELECT id FROM field_definitions WHERE code = 'next_check_date'").fetchone()[0]
+    record_id = base.execute(
+        "SELECT id FROM records WHERE uuid = ?", (source["similar"],)
+    ).fetchone()[0]
+    field_id = base.execute(
+        "SELECT id FROM field_definitions WHERE code = 'next_check_date'"
+    ).fetchone()[0]
     base.execute(
         "INSERT INTO record_values (record_id, field_id, ordinal, value_date, created_at)"
         " VALUES (?, ?, 0, '2026-13-45', 'x')",
@@ -194,7 +248,9 @@ def test_bad_value_refuses_whole_import(source, target):
         assert _count(target, table) == 0, table  # частичного переноса нет (MIG-12)
 
 
-@pytest.mark.parametrize(("schema", "code"), [(4, "localdb_schema_old"), (40, "localdb_schema_new")])
+@pytest.mark.parametrize(
+    ("schema", "code"), [(4, "localdb_schema_old"), (40, "localdb_schema_new")]
+)
 def test_unsupported_schema_is_refused_with_explanation(tmp_path, target, schema, code):
     base = LocalDb(tmp_path / "local_db.sqlite3", schema=schema)
     base.close()

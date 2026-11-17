@@ -47,7 +47,7 @@ def search(
     conn: sqlite3.Connection, site_id: str, query: str, *, limit: int = 20
 ) -> list[dict[str, Any]]:
     """Подсказки по части кода: сначала совпадения с начала, затем остальные."""
-    needle = query.strip().upper()
+    needle = text.kks_needle(query)
     if not needle:
         return []
     rows = conn.execute(
@@ -133,11 +133,14 @@ def update(
     tx: Tx, kks_id: str, *, name: str | None = None, archived: bool | None = None
 ) -> dict[str, Any]:
     """Описание и архив. Архив сохраняет связи и удерживает код за объектом."""
-    get(tx.conn, kks_id)
-    if name is not None:
+    current = get(tx.conn, kks_id)
+    if name is not None and (name.strip() or None) != current["name"]:
         tx.conn.execute(
             "UPDATE kks_objects SET name = ?, updated_at = ? WHERE id = ?",
             (name.strip() or None, tx.now, kks_id),
+        )
+        tx.audit(
+            "kks.update", "kks", kks_id, details={"name": [current["name"], name.strip() or None]}
         )
     if archived is not None:
         tx.conn.execute(
@@ -169,8 +172,7 @@ def card(conn: sqlite3.Connection, kks_id: str) -> dict[str, Any]:
     """Карточка ККС: объект, псевдонимы и число связанных записей по реестрам и ролям."""
     found = get(conn, kks_id)
     aliases = conn.execute(
-        "SELECT id, alias, kind, created_at FROM kks_aliases WHERE kks_id = ?"
-        " ORDER BY alias_norm",
+        "SELECT id, alias, kind, created_at FROM kks_aliases WHERE kks_id = ? ORDER BY alias_norm",
         (kks_id,),
     ).fetchall()
     usage = conn.execute(
@@ -251,9 +253,7 @@ def _check_free(
         )
 
 
-def _insert_alias(
-    tx: Tx, kks_id: str, site_id: str, shown: str, norm: str, kind: str
-) -> str:
+def _insert_alias(tx: Tx, kks_id: str, site_id: str, shown: str, norm: str, kind: str) -> str:
     alias_id = text.new_id()
     tx.conn.execute(
         "INSERT INTO kks_aliases (id, kks_id, site_id, alias, alias_norm, kind, created_at)"

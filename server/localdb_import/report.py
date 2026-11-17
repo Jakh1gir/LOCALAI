@@ -46,8 +46,10 @@ def as_text(report: dict[str, Any]) -> str:
         mode,
         "",
         f"Источник: {source['path']}",
-        f"  схема Local_DB {source['schema_version']}, профиль «{source['profile'] or '—'}»,"
-        f" ID базы {source['database_uuid'] or '—'}",
+        (
+            f"  схема Local_DB {source['schema_version']}, профиль «{source['profile'] or '—'}»,"
+            f" ID базы {source['database_uuid'] or '—'}"
+        ),
     ]
     if report.get("site"):
         lines.append(f"Площадка LOCALAI: {report['site']['name']}")
@@ -57,11 +59,15 @@ def as_text(report: dict[str, Any]) -> str:
         values = structure["values"]
         lines += [
             "",
-            f"Структура: типов {structure['types']}, полей {fields['created']}"
-            f" (в архиве {fields['archived']}, скрытых {fields['hidden']}),"
-            f" справочников {structure['dictionaries']}",
-            f"  значений справочников {values['created']}, в архиве {values['archived']},"
-            f" объединено {values['merged']}",
+            (
+                f"Структура: типов {structure['types']}, полей {fields['created']}"
+                f" (в архиве {fields['archived']}, скрытых {fields['hidden']}),"
+                f" справочников {structure['dictionaries']}"
+            ),
+            (
+                f"  значений справочников {values['created']}, в архиве {values['archived']},"
+                f" объединено {values['merged']}"
+            ),
         ]
     datasets = report.get("datasets", [])
     if datasets:
@@ -76,9 +82,11 @@ def as_text(report: dict[str, Any]) -> str:
     if catalog:
         lines += [
             "",
-            f"Каталог ККС: новых объектов {catalog['created']}, уже были {catalog['existing']},"
-            f" только из истории (в архиве) {catalog['history_only']},"
-            f" групп похожих кодов {len(catalog['similar'])}",
+            (
+                f"Каталог ККС: новых объектов {catalog['created']}, уже были {catalog['existing']},"
+                f" только из истории (в архиве) {catalog['history_only']},"
+                f" групп похожих кодов {len(catalog['similar'])}"
+            ),
         ]
     if report.get("audit") is not None:
         lines.append(f"Журнал: событий {report['audit']['events']}")

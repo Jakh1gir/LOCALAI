@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
@@ -26,7 +27,9 @@ class Client:
     def get(self, path: str, **query: Any) -> Reply:
         return self.request("GET", path, query=query)
 
-    def post(self, path: str, body: Any = None, *, key: str | None = None, raw: bytes | None = None) -> Reply:
+    def post(
+        self, path: str, body: Any = None, *, key: str | None = None, raw: bytes | None = None
+    ) -> Reply:
         return self.request("POST", path, body, key=key, raw=raw)
 
     def patch(self, path: str, body: Any = None, *, key: str | None = None) -> Reply:
@@ -35,18 +38,40 @@ class Client:
     def delete(self, path: str) -> Reply:
         return self.request("DELETE", path)
 
-    def request(self, method: str, path: str, body: Any = None, *, query: dict[str, Any] | None = None,
-                key: str | None = None, raw: bytes | None = None) -> Reply:  # fmt: skip
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: Any = None,
+        *,
+        query: dict[str, Any] | None = None,
+        key: str | None = None,
+        raw: bytes | None = None,
+    ) -> Reply:
         payload = raw if raw is not None else (b"" if body is None else json.dumps(body).encode())
-        headers = [(b"content-type", b"application/json"), (b"content-length", str(len(payload)).encode())]
-        if key is not None:
+        headers = [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(payload)).encode()),
+        ]
+        if key is None and method in ("POST", "PATCH", "PUT", "DELETE"):
+            key = str(uuid.uuid4())  # каждый изменяющий запрос несёт свой ключ (API-06)
+        if key:  # пустая строка — запрос без ключа
             headers.append((b"idempotency-key", key.encode()))
         scope = {
-            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
-            "scheme": "http", "path": "/api/v1" + path, "raw_path": ("/api/v1" + path).encode(),
-            "query_string": urlencode(query or {}).encode(), "root_path": "", "headers": headers,
-            "client": ("127.0.0.1", 50000), "server": ("testserver", 80), "state": {},
-        }  # fmt: skip
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": method,
+            "scheme": "http",
+            "path": "/api/v1" + path,
+            "raw_path": ("/api/v1" + path).encode(),
+            "query_string": urlencode(query or {}).encode(),
+            "root_path": "",
+            "headers": headers,
+            "client": ("127.0.0.1", 50000),
+            "server": ("testserver", 80),
+            "state": {},
+        }
         result = {"status": 0, "body": b""}
 
         async def call() -> None:

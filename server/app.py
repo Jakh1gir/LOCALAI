@@ -11,7 +11,6 @@ from engine import Actor, Database, EngineError, open_database
 from server import api
 from server.routes import ENDPOINTS
 
-MAX_BODY = 10 * 1024 * 1024
 # До этапа 2 входа нет: все действия записываются от имени локального пользователя,
 # а сервер по умолчанию слушает только этот компьютер.
 LOCAL_USER = Actor(None, "Локальный пользователь", "user")
@@ -28,7 +27,6 @@ def create_app(database: str | Path | Database, *, actor: Actor = LOCAL_USER) ->
             HTTPException: api.on_http_error,
             Exception: api.on_unexpected,
         },
-        max_body_size=MAX_BODY,
     )
     app.state.db = db
     return app

@@ -55,16 +55,27 @@ def add_field(call: Call) -> dict[str, Any]:
     """Добавить поле в тип."""
     body = call.body
     return structure.add_field(
-        call.tx, call.params["id"], body.name, body.kind, key=body.key, multiple=body.multiple,
-        required=body.required, searchable=body.searchable, filterable=body.filterable,
-        sortable=body.sortable, dictionary_id=body.dictionary_id, input_mode=body.input_mode,
+        call.tx,
+        call.params["id"],
+        body.name,
+        body.kind,
+        key=body.key,
+        multiple=body.multiple,
+        required=body.required,
+        searchable=body.searchable,
+        filterable=body.filterable,
+        sortable=body.sortable,
+        dictionary_id=body.dictionary_id,
+        input_mode=body.input_mode,
         kks_role=body.kks_role,
-    )  # fmt: skip
+    )
 
 
 def update_field(call: Call) -> dict[str, Any]:
     """Изменить название, порядок, флаги или режим ввода поля."""
-    return structure.update_field(call.tx, call.params["id"], **call.body.model_dump(exclude_unset=True))
+    return structure.update_field(
+        call.tx, call.params["id"], **call.body.model_dump(exclude_unset=True)
+    )
 
 
 def archive_field(call: Call) -> dict[str, Any]:
@@ -79,8 +90,11 @@ def restore_field(call: Call) -> dict[str, Any]:
 
 def list_datasets(call: Call) -> dict[str, Any]:
     """Список реестров, по площадке или типу."""
-    return {"items": structure.list_datasets(
-        call.conn, site_id=call.query.get("site_id"), type_id=call.query.get("type_id"))}  # fmt: skip
+    return {
+        "items": structure.list_datasets(
+            call.conn, site_id=call.query.get("site_id"), type_id=call.query.get("type_id")
+        )
+    }
 
 
 def create_dataset(call: Call) -> dict[str, Any]:
@@ -126,14 +140,18 @@ def rename_dictionary(call: Call) -> dict[str, Any]:
 
 def list_values(call: Call) -> dict[str, Any]:
     """Значения справочника; архивные — по параметру archived."""
-    return {"items": structure.list_dictionary_values(
-        call.conn, call.params["id"], include_archived=call.query_bool("archived"))}  # fmt: skip
+    return {
+        "items": structure.list_dictionary_values(
+            call.conn, call.params["id"], include_archived=call.query_bool("archived")
+        )
+    }
 
 
 def add_value(call: Call) -> dict[str, Any]:
     """Добавить значение в справочник."""
-    return structure.add_dictionary_value(call.tx, call.params["id"], call.body.value,
-                                          call.body.synonyms)  # fmt: skip
+    return structure.add_dictionary_value(
+        call.tx, call.params["id"], call.body.value, call.body.synonyms
+    )
 
 
 def update_value(call: Call) -> dict[str, Any]:

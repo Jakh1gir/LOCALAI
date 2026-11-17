@@ -21,7 +21,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from engine import Actor, Database, EngineError, idempotency
-from engine.errors import CONFLICT, INVALID, NOT_FOUND
+from engine.errors import CONFLICT, INVALID, NOT_FOUND, TOO_LARGE
 
 PREFIX = "/api/v1"
 log = logging.getLogger("localai.server")
@@ -38,7 +38,8 @@ PERMISSIONS = {
     "kks.write": "Изменение каталога ККС",
     "audit.read": "Просмотр журнала",
 }
-_STATUS = {NOT_FOUND: 404, INVALID: 400, CONFLICT: 409}
+_STATUS = {NOT_FOUND: 404, INVALID: 400, CONFLICT: 409, TOO_LARGE: 413}
+MAX_BODY = 10 * 1024 * 1024
 
 
 @dataclass
@@ -85,8 +86,12 @@ class Endpoint:
     writes: bool = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "writes", self.method in ("POST", "PATCH", "PUT", "DELETE")
-                           and self.permission.endswith(".write"))  # fmt: skip
+        object.__setattr__(
+            self,
+            "writes",
+            self.method in ("POST", "PATCH", "PUT", "DELETE")
+            and self.permission.endswith(".write"),
+        )
 
     @property
     def summary(self) -> str:
@@ -104,17 +109,29 @@ class Server:
         async def handle(request: Request) -> Response:
             body = await _body(request, endpoint)
             call = Call(
-                params=dict(request.path_params), query=dict(request.query_params),
-                body=body, actor=self.actor,
-            )  # fmt: skip
+                params=dict(request.path_params),
+                query=dict(request.query_params),
+                body=body,
+                actor=self.actor,
+            )
             key = request.headers.get("idempotency-key")
+            if endpoint.writes and not key:
+                raise EngineError(
+                    "idempotency_key_required",
+                    "Изменяющий запрос должен нести заголовок Idempotency-Key",
+                    field="Idempotency-Key",
+                )
             result = await run_in_threadpool(self._run, endpoint, call, key)
             if endpoint.status == 204:
                 return Response(status_code=204)
             return JSONResponse(result, status_code=endpoint.status)
 
-        return Route(PREFIX + endpoint.path, handle, methods=[endpoint.method],
-                     name=endpoint.handler.__name__)  # fmt: skip
+        return Route(
+            PREFIX + endpoint.path,
+            handle,
+            methods=[endpoint.method],
+            name=endpoint.handler.__name__,
+        )
 
     def _run(self, endpoint: Endpoint, call: Call, key: str | None) -> Any:
         if not endpoint.writes:
@@ -131,7 +148,7 @@ class Server:
 async def _body(request: Request, endpoint: Endpoint) -> Any:
     if endpoint.body is None:
         return None
-    raw = await request.body()
+    raw = await _read_limited(request)
     try:
         data = json.loads(raw or b"{}")
     except ValueError:
@@ -140,6 +157,25 @@ async def _body(request: Request, endpoint: Endpoint) -> Any:
         return endpoint.body.model_validate(data)
     except ValidationError as error:
         raise _validation_error(error) from None
+
+
+async def _read_limited(request: Request) -> bytes:
+    """Тело запроса не больше ``MAX_BODY``; лишнее не читается в память."""
+    too_large = EngineError(
+        "request_too_large",
+        f"Тело запроса больше {MAX_BODY // (1024 * 1024)} МиБ",
+        status=TOO_LARGE,
+    )
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BODY:
+        raise too_large
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_BODY:
+            raise too_large
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _plain(body: Any) -> Any:
@@ -187,14 +223,19 @@ async def on_http_error(_request: Request, error: Exception) -> Response:
         413: ("request_too_large", "Тело запроса слишком большое"),
     }
     code, message = known.get(error.status_code, ("http_error", str(error.detail)))
-    return JSONResponse({"error": {"code": code, "message": message}},
-                        status_code=error.status_code)  # fmt: skip
+    return JSONResponse(
+        {"error": {"code": code, "message": message}}, status_code=error.status_code
+    )
 
 
 async def on_unexpected(_request: Request, error: Exception) -> Response:
     log.exception("Необработанная ошибка сервера", exc_info=error)
     return JSONResponse(
-        {"error": {"code": "internal", "message": "Внутренняя ошибка сервера; подробности в журнале"}},
+        {
+            "error": {
+                "code": "internal",
+                "message": "Внутренняя ошибка сервера; подробности в журнале",
+            }
+        },
         status_code=500,
     )
-

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import sqlite3
 import threading
@@ -28,6 +29,7 @@ class Actor:
 
 
 SYSTEM = Actor(None, "Система", "system")
+_SAVEPOINTS = itertools.count(1)
 
 
 class Tx:
@@ -37,6 +39,24 @@ class Tx:
         self.conn = conn
         self.actor = actor
         self.now = text.now()
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """Вложенная часть транзакции: при ошибке откатывается только она.
+
+        Так шаг пакетного действия (одна запись при переносе) либо
+        записывается целиком, либо не оставляет следов, а остальная
+        транзакция продолжается.
+        """
+        name = f"lai_sp{next(_SAVEPOINTS)}"
+        self.conn.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except BaseException:
+            self.conn.execute(f"ROLLBACK TO {name}")
+            self.conn.execute(f"RELEASE {name}")
+            raise
+        self.conn.execute(f"RELEASE {name}")
 
     def audit(
         self,

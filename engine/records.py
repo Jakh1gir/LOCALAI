@@ -14,7 +14,7 @@ from typing import Any
 
 from engine import fulltext, structure, text
 from engine.database import Tx, dumps
-from engine.errors import CONFLICT, EngineError, not_found
+from engine.errors import CONFLICT, NOT_FOUND, EngineError, not_found
 from engine.validation import Normalizer, coerce_scalar
 
 MAX_BULK = 5000
@@ -64,14 +64,17 @@ def create_many(
         record_id = text.new_id()
         writer.insert(doc, record_id, op)
         ids.append(record_id)
-    tx.audit(f"record.{op}_many", "dataset", dataset_id, dataset_id=dataset_id,
-             details={"count": len(ids), "kks_created": writer.normalizer.kks_created})  # fmt: skip
+    tx.audit(
+        f"record.{op}_many",
+        "dataset",
+        dataset_id,
+        dataset_id=dataset_id,
+        details={"count": len(ids), "kks_created": writer.normalizer.kks_created},
+    )
     return ids
 
 
-def update(
-    tx: Tx, record_id: str, patch: dict[str, Any], expected_version: int
-) -> dict[str, Any]:
+def update(tx: Tx, record_id: str, patch: dict[str, Any], expected_version: int) -> dict[str, Any]:
     row = _row_for_write(tx.conn, record_id, expected_version)
     writer = _Writer(tx, row["dataset_id"])
     old = json.loads(row["doc"])
@@ -80,14 +83,17 @@ def update(
     if not diff:
         return _record(row)
     writer.apply(row, old, diff, "update")
-    tx.audit("record.update", "record", record_id, dataset_id=row["dataset_id"],
-             details={"fields": sorted(diff)})  # fmt: skip
+    tx.audit(
+        "record.update",
+        "record",
+        record_id,
+        dataset_id=row["dataset_id"],
+        details={"fields": sorted(diff)},
+    )
     return get(tx.conn, record_id)
 
 
-def set_archived(
-    tx: Tx, record_id: str, archived: bool, expected_version: int
-) -> dict[str, Any]:
+def set_archived(tx: Tx, record_id: str, archived: bool, expected_version: int) -> dict[str, Any]:
     """Архив и восстановление. Связи ККС и история при архиве сохраняются (DATA-08)."""
     row = _row_for_write(tx.conn, record_id, expected_version, allow_archived=True)
     if (row["archived_at"] is not None) == archived:
@@ -126,8 +132,16 @@ def doc_at(conn: sqlite3.Connection, record_id: str, version: int) -> dict[str, 
     """Документ записи на указанной версии, восстановленный по разницам."""
     row = _row(conn, record_id)
     if not 1 <= version <= row["version"]:
+        raise EngineError("version_unknown", f"У записи нет версии {version}", field="version")
+    kept = conn.execute(
+        "SELECT 1 FROM record_versions WHERE record_seq = ? AND version = ?", (row["seq"], version)
+    ).fetchone()
+    if kept is None:
         raise EngineError(
-            "version_unknown", f"У записи нет версии {version}", field="version"
+            "version_missing",
+            f"Версия {version} в истории записи не сохранилась",
+            status=NOT_FOUND,
+            field="version",
         )
     doc = json.loads(row["doc"])
     later = conn.execute(
@@ -144,22 +158,36 @@ def doc_at(conn: sqlite3.Connection, record_id: str, version: int) -> dict[str, 
     return doc
 
 
-def rollback(
-    tx: Tx, record_id: str, to_version: int, expected_version: int
-) -> dict[str, Any]:
-    """Возвращает значения версии ``to_version`` новой версией записи."""
+def rollback(tx: Tx, record_id: str, to_version: int, expected_version: int) -> dict[str, Any]:
+    """Возвращает значения версии ``to_version`` новой версией записи.
+
+    Откат подчиняется правилам обычной правки: значение должно подходить
+    полю, обязательное поле не очищается, а архивное значение справочника
+    или объект ККС нельзя поставить заново — их сначала восстанавливают.
+    Поля, отправленные в архив, откат не меняет. Версия, которую откатить
+    нельзя, остаётся доступной для просмотра.
+    """
     row = _row_for_write(tx.conn, record_id, expected_version)
     target = doc_at(tx.conn, record_id, to_version)
     old = json.loads(row["doc"])
+    writer = _Writer(tx, row["dataset_id"])
     keys = sorted(set(old) | set(target))
-    diff = {key: [old.get(key), target.get(key)] for key in keys if old.get(key) != target.get(key)}
+    diff = {
+        key: [old.get(key), target.get(key)]
+        for key in keys
+        if old.get(key) != target.get(key) and not writer.archived_field(key)
+    }
     if not diff:
         return _record(row)
-    writer = _Writer(tx, row["dataset_id"])
-    writer.check_kks_alive(diff)
+    writer.check_restorable(diff, to_version)
     writer.apply(row, old, diff, "rollback", restored_from=to_version)
-    tx.audit("record.rollback", "record", record_id, dataset_id=row["dataset_id"],
-             details={"to_version": to_version})  # fmt: skip
+    tx.audit(
+        "record.rollback",
+        "record",
+        record_id,
+        dataset_id=row["dataset_id"],
+        details={"to_version": to_version},
+    )
     return get(tx.conn, record_id)
 
 
@@ -205,24 +233,37 @@ def load(tx: Tx, dataset_id: str, items: list[LoadedRecord]) -> int:
     writer = _Writer(tx, dataset_id, allow_archived=True)
     for item in items:
         writer.check_loaded(item)
-        last = item.versions[-1]
-        try:
-            cursor = tx.conn.execute(
-                "INSERT INTO records (id, dataset_seq, version, doc, archived_at, created_at,"
-                " updated_at) VALUES (?,?,?,?,?,?,?)",
-                (item.id, writer.dataset["seq"], last.version, dumps(item.doc),
-                 item.archived_at, item.created_at, item.updated_at),
-            )  # fmt: skip
-        except sqlite3.IntegrityError:
-            raise EngineError(
-                "record_exists", "Запись с таким ID уже есть", status=CONFLICT,
-                details={"record_id": item.id},
-            ) from None  # fmt: skip
-        seq = cursor.lastrowid
-        assert seq is not None
-        _add_loaded_versions(tx, seq, item.versions)
-        writer.index(seq, item.doc)
+        with tx.savepoint():
+            _insert_loaded(tx, writer, item)
     return len(items)
+
+
+def _insert_loaded(tx: Tx, writer: _Writer, item: LoadedRecord) -> None:
+    try:
+        cursor = tx.conn.execute(
+            "INSERT INTO records (id, dataset_seq, version, doc, archived_at, created_at,"
+            " updated_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                item.id,
+                writer.dataset["seq"],
+                item.versions[-1].version,
+                dumps(item.doc),
+                item.archived_at,
+                item.created_at,
+                item.updated_at,
+            ),
+        )
+    except sqlite3.IntegrityError:
+        raise EngineError(
+            "record_exists",
+            "Запись с таким ID уже есть",
+            status=CONFLICT,
+            details={"record_id": item.id},
+        ) from None
+    seq = cursor.lastrowid
+    assert seq is not None
+    _add_loaded_versions(tx, seq, item.versions)
+    writer.index(seq, item.doc)
 
 
 def extend(tx: Tx, item: LoadedRecord) -> int:
@@ -242,15 +283,18 @@ def extend(tx: Tx, item: LoadedRecord) -> int:
         raise EngineError(
             "load_history_gap",
             "Новые версии записи не продолжают её текущую историю",
-            status=CONFLICT, details={"record_id": item.id},
-        )  # fmt: skip
-    tx.conn.execute(
-        "UPDATE records SET doc = ?, version = ?, archived_at = ?, updated_at = ? WHERE seq = ?",
-        (dumps(item.doc), fresh[-1].version, item.archived_at, item.updated_at, row["seq"]),
-    )
-    _add_loaded_versions(tx, row["seq"], tuple(fresh))
-    tx.conn.execute("DELETE FROM record_kks_links WHERE record_seq = ?", (row["seq"],))
-    writer.index(row["seq"], item.doc)
+            status=CONFLICT,
+            details={"record_id": item.id},
+        )
+    with tx.savepoint():  # запись дописывается целиком или остаётся прежней
+        tx.conn.execute(
+            "UPDATE records SET doc = ?, version = ?, archived_at = ?, updated_at = ?"
+            " WHERE seq = ?",
+            (dumps(item.doc), fresh[-1].version, item.archived_at, item.updated_at, row["seq"]),
+        )
+        _add_loaded_versions(tx, row["seq"], tuple(fresh))
+        tx.conn.execute("DELETE FROM record_kks_links WHERE record_seq = ?", (row["seq"],))
+        writer.index(row["seq"], item.doc)
     return len(fresh)
 
 
@@ -280,11 +324,19 @@ def _add_loaded_versions(tx: Tx, seq: int, versions: tuple[LoadedVersion, ...]) 
         "INSERT INTO record_versions (record_seq, version, op, changes, actor_id,"
         " actor_label, origin, at, restored_from) VALUES (?,?,?,?,NULL,?,?,?,?)",
         [
-            (seq, item.version, item.op, dumps(item.changes), item.actor_label, item.origin,
-             item.at, item.restored_from)
+            (
+                seq,
+                item.version,
+                item.op,
+                dumps(item.changes),
+                item.actor_label,
+                item.origin,
+                item.at,
+                item.restored_from,
+            )
             for item in versions
         ],
-    )  # fmt: skip
+    )
 
 
 def get_by_seq(conn: sqlite3.Connection, seq: int) -> dict[str, Any]:
@@ -312,9 +364,12 @@ class _Writer:
             raise EngineError("dataset_archived", "Реестр в архиве; запись в него закрыта")
         self.schema = structure.load_schema(tx.conn, self.dataset["type_id"])
         self.normalizer = Normalizer(
-            tx, self.schema, self.dataset["site_id"],
-            create_missing_kks=create_missing_kks, audit_kks=audit_kks,
-        )  # fmt: skip
+            tx,
+            self.schema,
+            self.dataset["site_id"],
+            create_missing_kks=create_missing_kks,
+            audit_kks=audit_kks,
+        )
         self.labels = fulltext.Labels(tx.conn)
         self.kks_fields = [field for field in self.schema.fields if field.kind == "kks"]
         self._known: dict[str, set[str]] = {}
@@ -331,9 +386,10 @@ class _Writer:
         numbers = [version.version for version in item.versions]
         if not numbers or numbers != sorted(set(numbers)) or numbers[0] < 1:
             raise EngineError(
-                "load_versions", "Номера версий должны возрастать, начиная с 1 или больше",
+                "load_versions",
+                "Номера версий должны возрастать, начиная с 1 или больше",
                 details={"record_id": item.id},
-            )  # fmt: skip
+            )
         for version in item.versions:
             if version.op not in OPS:
                 raise EngineError("load_versions", f"Неизвестная операция версии: {version.op}")
@@ -341,21 +397,27 @@ class _Writer:
             field = self.schema.by_key(key)
             if field is None:
                 raise EngineError(
-                    "field_unknown", f"В типе нет поля «{key}»", field=key,
+                    "field_unknown",
+                    f"В типе нет поля «{key}»",
+                    field=key,
                     details={"record_id": item.id},
-                )  # fmt: skip
+                )
             items = value if isinstance(value, list) else [value]
             if field.multiple != isinstance(value, list) or not items:
                 raise EngineError(
-                    "load_value", f"Поле «{field.name}»: неверная форма значения", field=key,
+                    "load_value",
+                    f"Поле «{field.name}»: неверная форма значения",
+                    field=key,
                     details={"record_id": item.id},
-                )  # fmt: skip
+                )
             for one in items:
                 if not self._valid(field, one):
                     raise EngineError(
-                        "load_value", f"Поле «{field.name}»: недопустимое значение {one!r}",
-                        field=key, details={"record_id": item.id},
-                    )  # fmt: skip
+                        "load_value",
+                        f"Поле «{field.name}»: недопустимое значение {one!r}",
+                        field=key,
+                        details={"record_id": item.id},
+                    )
 
     def _valid(self, field: structure.Field, value: Any) -> bool:
         if field.kind in ("choice", "kks"):
@@ -430,26 +492,57 @@ class _Writer:
             self._links(row["seq"], doc)
         fulltext.write(tx.conn, row["seq"], fulltext.record_text(doc, self.schema, self.labels))
 
-    def check_kks_alive(self, diff: dict[str, list[Any]]) -> None:
-        """Откат не может заново связать запись с архивным объектом ККС."""
-        for field in self.kks_fields:
-            if field.key not in diff:
-                continue
-            before, after = diff[field.key]
-            had = set(before if isinstance(before, list) else [before])
-            for kks_id in after if isinstance(after, list) else [after]:
-                if kks_id is None or kks_id in had:
-                    continue
-                row = self.tx.conn.execute(
-                    "SELECT code, archived_at FROM kks_objects WHERE id = ?", (kks_id,)
-                ).fetchone()
-                if row is None or row["archived_at"]:
-                    code = row["code"] if row else kks_id
+    def archived_field(self, key: str) -> bool:
+        field = self.schema.by_key(key)
+        return field is not None and field.archived_at is not None
+
+    def check_restorable(self, diff: dict[str, list[Any]], version: int) -> None:
+        """Проверка отката по правилам обычной правки; см. ``rollback``."""
+        for key, (before, after) in diff.items():
+            field = self.schema.by_key(key)
+            if field is None:
+                raise EngineError(
+                    "rollback_invalid",
+                    f"Поля «{key}» больше нет в типе; откат невозможен",
+                    field=key,
+                )
+            if after is None:
+                if field.required:
                     raise EngineError(
-                        "kks_archived",
-                        f"Объект ККС «{code}» в архиве; его нужно восстановить",
-                        field=field.key,
+                        "value_required",
+                        f"Поле «{field.name}» обязательно, а в версии {version} оно пустое",
+                        field=key,
                     )
+                continue
+            items = after if isinstance(after, list) else [after]
+            if field.multiple != isinstance(after, list) or not all(
+                self._valid(field, item) for item in items
+            ):
+                raise EngineError(
+                    "rollback_invalid",
+                    f"В версии {version} поле «{field.name}» содержит недопустимое значение;"
+                    " откатить её нельзя, просмотр доступен",
+                    field=key,
+                )
+            had = set(before if isinstance(before, list) else [before])
+            for item in items:
+                if item not in had and field.kind in ("choice", "kks"):
+                    self._check_not_archived(field, item)
+
+    def _check_not_archived(self, field: structure.Field, value_id: str) -> None:
+        if field.kind == "choice":
+            sql = "SELECT value AS shown, archived_at FROM dictionary_values WHERE id = ?"
+            code, what = "value_choice_archived", "Значение «{}» в архиве"
+        else:
+            sql = "SELECT code AS shown, archived_at FROM kks_objects WHERE id = ?"
+            code, what = "kks_archived", "Объект ККС «{}» в архиве"
+        row = self.tx.conn.execute(sql, (value_id,)).fetchone()
+        if row is not None and row["archived_at"]:
+            raise EngineError(
+                code,
+                what.format(row["shown"]) + "; для отката его нужно восстановить",
+                field=field.key,
+            )
 
     def _links(self, seq: int, doc: dict[str, Any]) -> None:
         rows = []
@@ -468,10 +561,9 @@ class _Writer:
                 " VALUES (?,?,?,?,?)",
                 rows,
             )
-        except sqlite3.IntegrityError:
+        except sqlite3.IntegrityError:  # позиция поля занята дважды: ошибка в самом коде
             raise EngineError(
-                "kks_link_duplicate",
-                "Одна и та же связь с объектом ККС указана в записи дважды",
+                "kks_link_duplicate", "Одна позиция поля ККС указана в записи дважды"
             ) from None
 
 
@@ -486,9 +578,18 @@ def _add_version(
     tx.conn.execute(
         "INSERT INTO record_versions (record_seq, version, op, changes, actor_id,"
         " actor_label, origin, at, restored_from) VALUES (?,?,?,?,?,?,?,?,?)",
-        (seq, version, op, dumps(changes), tx.actor.id, tx.actor.label, tx.actor.origin,
-         tx.now, restored_from),
-    )  # fmt: skip
+        (
+            seq,
+            version,
+            op,
+            dumps(changes),
+            tx.actor.id,
+            tx.actor.label,
+            tx.actor.origin,
+            tx.now,
+            restored_from,
+        ),
+    )
 
 
 def _row(conn: sqlite3.Connection, record_id: str) -> sqlite3.Row:

@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sqlite3
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from engine import kks, structure, text
@@ -21,6 +23,11 @@ _TRUE = {"да", "true", "1", "yes", "истина", "+"}
 _FALSE = {"нет", "false", "0", "no", "ложь", "-"}
 MAX_TEXT = 20_000
 MAX_ITEMS = 500
+# Целые хранятся в SQLite как 64-битные: за этими границами фильтр и
+# сортировка по значению невозможны, поэтому такие числа не принимаются.
+MIN_INT, MAX_INT = -(2**63), 2**63 - 1
+_INTEGER_TEXT = re.compile(r"^[+-]?\d+$")
+_SPACES = (" ", "\u00a0")
 
 
 def coerce_scalar(kind: str, value: Any, field: str) -> Any:
@@ -56,32 +63,57 @@ def _text(value: Any, field: str) -> str | None:
 def _integer(value: Any, field: str) -> int:
     if isinstance(value, bool):
         raise EngineError("value_integer", "Ожидается целое число", field=field)
-    if isinstance(value, int):
-        return value
     if isinstance(value, float) and value.is_integer():
-        return int(value)
+        value = int(value)
     if isinstance(value, str):
-        try:
-            return int(value.replace(" ", "").replace(" ", ""))
-        except ValueError:
-            pass
+        cleaned = _no_spaces(value)
+        if _INTEGER_TEXT.match(cleaned):
+            value = int(cleaned)
+    if isinstance(value, int):
+        return _in_range(value, field)
     raise EngineError("value_integer", "Ожидается целое число", field=field)
 
 
 def _number(value: Any, field: str) -> int | float:
+    """Число без потери точности: целое — точно, дробное — если хватает 15 знаков."""
     if isinstance(value, bool):
         raise EngineError("value_number", "Ожидается число", field=field)
     if isinstance(value, str):
-        cleaned = value.replace(" ", "").replace(" ", "").replace(",", ".")
+        cleaned = _no_spaces(value).replace(",", ".")
+        if _INTEGER_TEXT.match(cleaned):
+            return _in_range(int(cleaned), field)
         try:
+            exact = Decimal(cleaned)
             value = float(cleaned)
-        except ValueError:
+        except (InvalidOperation, ValueError):
             raise EngineError("value_number", "Ожидается число", field=field) from None
+        if math.isfinite(value) and Decimal(repr(value)).normalize() != exact.normalize():
+            raise EngineError(
+                "value_precision",
+                "Число не сохраняется точно: больше 15 значащих цифр",
+                field=field,
+            )
     if isinstance(value, int):
-        return value
+        return _in_range(value, field)
     if isinstance(value, float) and math.isfinite(value):
-        return int(value) if value.is_integer() else value
+        return _in_range(int(value), field) if value.is_integer() else value
     raise EngineError("value_number", "Ожидается число", field=field)
+
+
+def _no_spaces(value: str) -> str:
+    for space in _SPACES:
+        value = value.replace(space, "")
+    return value
+
+
+def _in_range(value: int, field: str) -> int:
+    if not MIN_INT <= value <= MAX_INT:
+        raise EngineError(
+            "value_out_of_range",
+            "Целое число вне допустимого диапазона (до 19 цифр)",
+            field=field,
+        )
+    return value
 
 
 def _boolean(value: Any, field: str) -> bool:
@@ -97,19 +129,26 @@ def _boolean(value: Any, field: str) -> bool:
 
 
 def _date(value: Any, field: str) -> str:
+    """Дата ``ГГГГ-ММ-ДД``, ``ДД.ММ.ГГГГ`` или полная отметка времени ISO.
+
+    От отметки времени берётся дата; любая другая строка отклоняется целиком,
+    а не обрезается до первых десяти символов.
+    """
+    if isinstance(value, datetime):
+        return value.date().isoformat()
     if isinstance(value, date):
-        return value.isoformat()[:10]
+        return value.isoformat()
     if isinstance(value, str):
-        shown = value[:10] if len(value) > 10 and value[10] in "T " else value
         try:
-            if len(shown) == 10 and shown[2] == "." and shown[5] == ".":
-                shown = f"{shown[6:10]}-{shown[3:5]}-{shown[0:2]}"
-            return date.fromisoformat(shown).isoformat()
+            if len(value) == 10 and value[2] == "." and value[5] == ".":
+                return date.fromisoformat(f"{value[6:10]}-{value[3:5]}-{value[0:2]}").isoformat()
+            if len(value) == 10:
+                return date.fromisoformat(value).isoformat()
+            if len(value) > 10 and value[10] in "T ":
+                return datetime.fromisoformat(value).date().isoformat()
         except ValueError:
             pass
-    raise EngineError(
-        "value_date", "Ожидается дата в виде ГГГГ-ММ-ДД или ДД.ММ.ГГГГ", field=field
-    )
+    raise EngineError("value_date", "Ожидается дата в виде ГГГГ-ММ-ДД или ДД.ММ.ГГГГ", field=field)
 
 
 class Normalizer:
@@ -154,14 +193,10 @@ class Normalizer:
             if field is None:
                 raise EngineError("field_unknown", f"В типе нет поля «{key}»", field=key)
             if field.archived_at is not None:
-                raise EngineError(
-                    "field_archived", f"Поле «{field.name}» в архиве", field=key
-                )
+                raise EngineError("field_archived", f"Поле «{field.name}» в архиве", field=key)
             value = self._value(field, raw, current.get(key))
             if value is None and field.required:
-                raise EngineError(
-                    "value_required", f"Поле «{field.name}» обязательно", field=key
-                )
+                raise EngineError("value_required", f"Поле «{field.name}» обязательно", field=key)
             result[key] = value
         return result
 
@@ -169,9 +204,10 @@ class Normalizer:
         if not field.multiple:
             if isinstance(raw, list):
                 raise EngineError(
-                    "value_single", f"Поле «{field.name}» хранит одно значение",
+                    "value_single",
+                    f"Поле «{field.name}» хранит одно значение",
                     field=field.key,
-                )  # fmt: skip
+                )
             return self._item(field, raw, old)
         items = raw if isinstance(raw, list) else [raw]
         if len(items) > MAX_ITEMS:
@@ -199,9 +235,7 @@ class Normalizer:
         if isinstance(raw, dict) and text.is_uuid(raw.get("id")):
             found = values["by_id"].get(raw["id"])
             if found is None:
-                raise EngineError(
-                    "value_choice", "Значения нет в справочнике", field=field.key
-                )
+                raise EngineError("value_choice", "Значения нет в справочнике", field=field.key)
             if found["archived"] and not _was(old, raw["id"]):
                 raise EngineError(
                     "value_choice_archived",
@@ -239,7 +273,7 @@ class Normalizer:
     # ККС ----------------------------------------------------------------------
 
     def _kks_id(self, field: structure.Field, raw: Any, old: Any) -> str | None:
-        if raw is None or raw == "":
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
             return None
         if isinstance(raw, dict) and text.is_uuid(raw.get("id")):
             found = kks.get(self.tx.conn, raw["id"])
@@ -256,13 +290,20 @@ class Normalizer:
             return raw["id"]
         if not isinstance(raw, str):
             raise EngineError("kks_invalid", "Ожидается код ККС", field=field.key)
-        _, norm = text.norm_kks(raw)
+        try:
+            _, norm = text.norm_kks(raw)
+        except EngineError as error:
+            error.field = field.key
+            raise
         if norm not in self._kks:
             try:
                 self._kks[norm], created = kks.ensure(
-                    self.tx, self.site_id, raw,
-                    create_missing=self.create_missing_kks, audit=self.audit_kks,
-                )  # fmt: skip
+                    self.tx,
+                    self.site_id,
+                    raw,
+                    create_missing=self.create_missing_kks,
+                    audit=self.audit_kks,
+                )
                 self.kks_created += int(created)
             except EngineError as error:
                 error.field = field.key

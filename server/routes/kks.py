@@ -15,8 +15,9 @@ READ, WRITE = "kks.read", "kks.write"
 def search(call: Call) -> dict[str, Any]:
     """Подсказки по части кода: сначала совпадения с начала кода."""
     structure.get_site(call.conn, call.params["id"])
-    found = kks.search(call.conn, call.params["id"], call.query.get("q", ""),
-                       limit=call.query_int("limit", 20))  # fmt: skip
+    found = kks.search(
+        call.conn, call.params["id"], call.query.get("q", ""), limit=call.query_int("limit", 20)
+    )
     return {"items": found}
 
 
@@ -27,8 +28,9 @@ def resolve(call: Call) -> dict[str, Any]:
         raise EngineError("request_invalid", "Нужен параметр code", field="code")
     found = kks.resolve(call.conn, call.params["id"], code)
     if found is None:
-        raise EngineError("kks_not_found", f"Код ККС «{code.strip()}» не найден на площадке",
-                          status=NOT_FOUND)  # fmt: skip
+        raise EngineError(
+            "kks_not_found", f"Код ККС «{code.strip()}» не найден на площадке", status=NOT_FOUND
+        )
     return found
 
 

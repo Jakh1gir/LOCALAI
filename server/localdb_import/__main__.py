@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -20,6 +21,7 @@ from pathlib import Path
 from engine import EngineError, open_database
 from server.localdb_import.importer import Decisions, run
 from server.localdb_import.report import as_text
+from server.localdb_import.source import DATABASE_FILE
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,7 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("source", help="каталог данных Local_DB или файл local_db.sqlite3")
     parser.add_argument("--target", help="база LOCALAI; без неё пробный прогон идёт на пустой базе")
-    parser.add_argument("--apply", action="store_true", help="выполнить перенос, а не пробный прогон")
+    parser.add_argument(
+        "--apply", action="store_true", help="выполнить перенос, а не пробный прогон"
+    )
     parser.add_argument("--site-name", help="площадка LOCALAI, на которую переносить")
     parser.add_argument("--site-id", help="ID существующей площадки LOCALAI")
     parser.add_argument("--no-audit", action="store_true", help="не переносить журнал действий")
@@ -40,9 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     decisions = Decisions(
         site_id=args.site_id, site_name=args.site_name, include_audit=not args.no_audit
     )
+    if args.report and _touches_databases(Path(args.report), args.source, args.target):
+        parser.error("файл отчёта совпадает с базой Local_DB или LOCALAI; укажите другой путь")
     with tempfile.TemporaryDirectory(prefix="localai-dry-") as scratch:
-        target = args.target or str(Path(scratch) / "localai.sqlite3")
         try:
+            target = _target(args.target, args.apply, Path(scratch))
             db = open_database(target)
             try:
                 report = run(db, args.source, decisions, apply=args.apply)
@@ -51,6 +57,9 @@ def main(argv: list[str] | None = None) -> int:
         except EngineError as error:
             print(f"Ошибка: {error.message}", file=sys.stderr)
             return 2
+    if not args.apply and args.target:
+        note = "копии базы LOCALAI" if Path(args.target).exists() else "пустой базе"
+        print(f"Пробный прогон выполнен на {note}; файл {args.target} не изменён.\n")
     print(as_text(report))
     if args.report:
         Path(args.report).write_text(
@@ -58,6 +67,40 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"\nПолный отчёт: {args.report}")
     return 0 if report["mode"] != "refused" else 1
+
+
+def _target(target: str | None, apply: bool, scratch: Path) -> str:
+    """База для работы. Пробный прогон никогда не пишет в указанный файл.
+
+    При пробном прогоне существующая база копируется во временный каталог,
+    а несуществующая не создаётся: прогон идёт на пустой временной базе.
+    """
+    if apply:
+        assert target is not None
+        return target
+    copy = scratch / "localai.sqlite3"
+    if target and Path(target).exists():
+        source = sqlite3.connect(f"file:{Path(target).resolve()}?mode=ro", uri=True)
+        try:
+            with sqlite3.connect(copy) as destination:
+                source.backup(destination)
+        finally:
+            source.close()
+    return str(copy)
+
+
+def _touches_databases(report: Path, source: str, target: str | None) -> bool:
+    """Путь отчёта совпадает с файлом базы или её служебным файлом."""
+    bases = [Path(source)]
+    if Path(source).is_dir():
+        bases.append(Path(source) / DATABASE_FILE)
+    if target:
+        bases.append(Path(target))
+    taken = set()
+    for base in bases:
+        for suffix in ("", "-wal", "-shm"):
+            taken.add(base.with_name(base.name + suffix).resolve())
+    return report.resolve() in taken or (report.exists() and report.resolve().is_dir())
 
 
 if __name__ == "__main__":

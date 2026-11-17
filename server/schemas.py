@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 
 class Body(BaseModel):
@@ -38,7 +38,7 @@ class FieldCreate(Body):
 
 class FieldPatch(Body):
     name: str | None = None
-    position: int | None = None
+    position: StrictInt | None = None
     required: bool | None = None
     searchable: bool | None = None
     filterable: bool | None = None
@@ -69,7 +69,7 @@ class RecordQuery(Body):
     where: list[dict[str, Any]] | None = None
     search: str | None = None
     sort: dict[str, Any] | list[dict[str, Any]] | None = None
-    limit: int | None = None
+    limit: StrictInt | None = None
     cursor: str | None = None
     archived: bool | Literal["any"] = False
     kks: str | None = None
@@ -87,17 +87,17 @@ class RecordCreate(Body):
 
 
 class RecordPatch(Body):
-    expected_version: int
+    expected_version: StrictInt
     values: dict[str, Any]
 
 
 class VersionBody(Body):
-    expected_version: int
+    expected_version: StrictInt
 
 
 class RollbackBody(Body):
-    expected_version: int
-    to_version: int
+    expected_version: StrictInt
+    to_version: StrictInt
 
 
 class KksCreate(Body):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from engine.errors import EngineError
 
@@ -26,7 +26,7 @@ def is_uuid(value: object) -> bool:
 
 def now() -> str:
     """Время UTC с миллисекундами; строки сравниваются как даты."""
-    stamp = datetime.now(timezone.utc)
+    stamp = datetime.now(UTC)
     return stamp.strftime("%Y-%m-%dT%H:%M:%S.") + f"{stamp.microsecond // 1000:03d}Z"
 
 
@@ -51,6 +51,11 @@ def clean_name(value: object, what: str = "Название", limit: int = MAX_N
 def norm_name(value: str) -> str:
     """Ключ уникальности названия."""
     return fold(_SPACES_RE.sub(" ", value).strip())
+
+
+def kks_needle(value: object) -> str:
+    """Часть кода ККС для поиска — по тем же правилам, что и сам код."""
+    return unicodedata.normalize("NFC", str(value)).strip().upper()
 
 
 def norm_kks(value: object) -> tuple[str, str]:
