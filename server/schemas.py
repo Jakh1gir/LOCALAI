@@ -113,3 +113,48 @@ class KksPatch(Body):
 
 class AliasCreate(Body):
     alias: str
+
+
+# Доступ ---------------------------------------------------------------------
+
+
+class Login(Body):
+    login: str
+    password: str
+
+
+class PasswordChange(Body):
+    current_password: str
+    new_password: str
+
+
+class RoleCreate(Body):
+    name: str
+    description: str | None = None
+    copy_from: str | None = None
+
+
+class RolePatch(Body):
+    name: str | None = None
+    description: str | None = None
+
+
+class Permission(Body):
+    scope: Literal["section", "dataset", "field", "doc_type"]
+    target: str
+    action: str
+
+
+class Permissions(Body):
+    permissions: list[Permission]
+
+
+class UserCreate(Body):
+    login: str
+    name: str
+    role_id: str
+
+
+class UserPatch(Body):
+    name: str | None = None
+    role_id: str | None = None

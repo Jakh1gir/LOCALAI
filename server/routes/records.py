@@ -2,56 +2,98 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
-from engine import EngineError, query, records
+from engine import EngineError, query, records, structure
+from engine.errors import FORBIDDEN
 from server import schemas
 from server.api import Call, Endpoint
 
-READ, WRITE = "records.read", "records.write"
+
+def _schema(call: Call, dataset_id: str) -> structure.TypeSchema:
+    dataset = structure.load_dataset(call.reader, dataset_id)
+    return structure.load_schema(call.reader, dataset["type_id"])
+
+
+def _hidden(call: Call, dataset_id: str) -> frozenset[str]:
+    return call.access.hidden_keys(_schema(call, dataset_id))
+
+
+def _check_editable(call: Call, dataset_id: str, keys: Iterable[str]) -> None:
+    """Скрытые и закрытые для правки поля роль менять не может (ROLE-03)."""
+    locked = sorted(set(keys) & call.access.locked_keys(_schema(call, dataset_id)))
+    if locked:
+        raise EngineError(
+            "field_forbidden",
+            "Недостаточно прав на изменение поля",
+            status=FORBIDDEN,
+            field=locked[0],
+        )
+
+
+def _visible(doc: dict[str, Any], hidden: frozenset[str]) -> dict[str, Any]:
+    return {key: value for key, value in doc.items() if key not in hidden}
 
 
 def query_records(call: Call) -> dict[str, Any]:
     """Страница записей реестра на языке запросов."""
     request = call.body.model_dump(exclude_none=True)
-    return query.list_records(call.conn, call.params["id"], request)
+    dataset_id = call.params["id"]
+    return query.list_records(call.conn, dataset_id, request, hidden=_hidden(call, dataset_id))
 
 
 def count_records(call: Call) -> dict[str, Any]:
     """Число записей по условиям."""
     request = call.body.model_dump(exclude_none=True)
-    return {"count": query.count_records(call.conn, call.params["id"], request)}
+    dataset_id = call.params["id"]
+    hidden = _hidden(call, dataset_id)
+    return {"count": query.count_records(call.conn, dataset_id, request, hidden=hidden)}
 
 
 def create_record(call: Call) -> dict[str, Any]:
     """Создать запись."""
-    return records.create(call.tx, call.params["id"], call.body.values)
+    dataset_id = call.params["id"]
+    _check_editable(call, dataset_id, call.body.values)
+    return _shown(call, records.create(call.tx, dataset_id, call.body.values))
 
 
 def get_record(call: Call) -> dict[str, Any]:
     """Запись и названия для её ID."""
-    record = records.get(call.conn, call.params["id"])
+    record = _shown(call, records.get(call.conn, call.params["id"]))
     return {"record": record, "refs": query.refs(call.conn, record["dataset_id"], [record["doc"]])}
 
 
 def update_record(call: Call) -> dict[str, Any]:
     """Изменить значения записи с проверкой ожидаемой версии."""
-    return records.update(call.tx, call.params["id"], call.body.values, call.body.expected_version)
+    record = records.get(call.tx.conn, call.params["id"])
+    _check_editable(call, record["dataset_id"], call.body.values)
+    changed = records.update(
+        call.tx, call.params["id"], call.body.values, call.body.expected_version
+    )
+    return _shown(call, changed)
 
 
 def archive_record(call: Call) -> dict[str, Any]:
     """Отправить запись в архив."""
-    return records.set_archived(call.tx, call.params["id"], True, call.body.expected_version)
+    changed = records.set_archived(call.tx, call.params["id"], True, call.body.expected_version)
+    return _shown(call, changed)
 
 
 def restore_record(call: Call) -> dict[str, Any]:
     """Вернуть запись из архива."""
-    return records.set_archived(call.tx, call.params["id"], False, call.body.expected_version)
+    changed = records.set_archived(call.tx, call.params["id"], False, call.body.expected_version)
+    return _shown(call, changed)
 
 
 def history(call: Call) -> dict[str, Any]:
     """Версии записи от новой к старой."""
-    return {"items": records.history(call.conn, call.params["id"])}
+    record = records.get(call.conn, call.params["id"])
+    hidden = _hidden(call, record["dataset_id"])
+    items = records.history(call.conn, call.params["id"])
+    for item in items:
+        item["changes"] = _visible(item["changes"], hidden)
+    return {"items": items}
 
 
 def version(call: Call) -> dict[str, Any]:
@@ -61,36 +103,100 @@ def version(call: Call) -> dict[str, Any]:
     except ValueError:
         raise EngineError("version_unknown", "Номер версии — целое число", field="n") from None
     record = records.get(call.conn, call.params["id"])
-    doc = records.doc_at(call.conn, call.params["id"], number)
+    doc = _visible(
+        records.doc_at(call.conn, call.params["id"], number), _hidden(call, record["dataset_id"])
+    )
     return {"doc": doc, "refs": query.refs(call.conn, record["dataset_id"], [doc])}
 
 
 def rollback(call: Call) -> dict[str, Any]:
     """Вернуть значения выбранной версии новой версией."""
     body = call.body
-    return records.rollback(call.tx, call.params["id"], body.to_version, body.expected_version)
+    record = records.get(call.tx.conn, call.params["id"])
+    # Откат меняет все поля, которые различаются; среди них не должно быть
+    # полей, закрытых для этой роли.
+    target = records.doc_at(call.tx.conn, call.params["id"], body.to_version)
+    changed = {
+        key for key in set(target) | set(record["doc"]) if target.get(key) != record["doc"].get(key)
+    }
+    _check_editable(call, record["dataset_id"], changed)
+    result = records.rollback(call.tx, call.params["id"], body.to_version, body.expected_version)
+    return _shown(call, result)
+
+
+def _shown(call: Call, record: dict[str, Any]) -> dict[str, Any]:
+    hidden = _hidden(call, record["dataset_id"])
+    return {**record, "doc": _visible(record["doc"], hidden)} if hidden else record
 
 
 def _e(method: str, path: str, handler, permission: str, **extra: Any) -> Endpoint:  # type: ignore[no-untyped-def]
     return Endpoint(method, path, handler, permission, tag="Записи", **extra)
 
 
+ON_DATASET = {"target": "dataset"}
+ON_RECORD = {"target": "record"}
+
 ENDPOINTS = [
-    _e("POST", "/datasets/{id}/records/query", query_records, READ, body=schemas.RecordQuery),
-    _e("POST", "/datasets/{id}/records/count", count_records, READ, body=schemas.RecordCount),
+    _e(
+        "POST",
+        "/datasets/{id}/records/query",
+        query_records,
+        "dataset.view",
+        body=schemas.RecordQuery,
+        read_only=True,
+        **ON_DATASET,
+    ),
+    _e(
+        "POST",
+        "/datasets/{id}/records/count",
+        count_records,
+        "dataset.view",
+        body=schemas.RecordCount,
+        read_only=True,
+        **ON_DATASET,
+    ),
     _e(
         "POST",
         "/datasets/{id}/records",
         create_record,
-        WRITE,
+        "dataset.create",
         body=schemas.RecordCreate,
         status=201,
+        **ON_DATASET,
     ),
-    _e("GET", "/records/{id}", get_record, READ),
-    _e("PATCH", "/records/{id}", update_record, WRITE, body=schemas.RecordPatch),
-    _e("POST", "/records/{id}/archive", archive_record, WRITE, body=schemas.VersionBody),
-    _e("POST", "/records/{id}/restore", restore_record, WRITE, body=schemas.VersionBody),
-    _e("GET", "/records/{id}/history", history, READ),
-    _e("GET", "/records/{id}/versions/{n}", version, READ),
-    _e("POST", "/records/{id}/rollback", rollback, WRITE, body=schemas.RollbackBody),
+    _e("GET", "/records/{id}", get_record, "dataset.view", **ON_RECORD),
+    _e(
+        "PATCH",
+        "/records/{id}",
+        update_record,
+        "dataset.edit",
+        body=schemas.RecordPatch,
+        **ON_RECORD,
+    ),
+    _e(
+        "POST",
+        "/records/{id}/archive",
+        archive_record,
+        "dataset.archive",
+        body=schemas.VersionBody,
+        **ON_RECORD,
+    ),
+    _e(
+        "POST",
+        "/records/{id}/restore",
+        restore_record,
+        "dataset.archive",
+        body=schemas.VersionBody,
+        **ON_RECORD,
+    ),
+    _e("GET", "/records/{id}/history", history, "dataset.view", **ON_RECORD),
+    _e("GET", "/records/{id}/versions/{n}", version, "dataset.view", **ON_RECORD),
+    _e(
+        "POST",
+        "/records/{id}/rollback",
+        rollback,
+        "dataset.edit",
+        body=schemas.RollbackBody,
+        **ON_RECORD,
+    ),
 ]

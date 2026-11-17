@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import engine
-from server.api import PERMISSIONS, PREFIX, Endpoint
+from server.api import COOKIE, PERMISSIONS, PREFIX, Endpoint
 from server.routes import ENDPOINTS
 
 TARGET = Path(__file__).resolve().parents[1] / "docs" / "contract" / "openapi.json"
@@ -34,6 +34,7 @@ def build(endpoints: list[Endpoint] = ENDPOINTS) -> dict[str, Any]:
             "summary": endpoint.summary,
             "tags": [endpoint.tag],
             "x-permission": endpoint.permission,
+            **({"security": []} if endpoint.permission == "public" else {}),
             "parameters": _parameters(endpoint),
             "responses": _responses(endpoint),
         }
@@ -53,7 +54,14 @@ def build(endpoints: list[Endpoint] = ENDPOINTS) -> dict[str, Any]:
         "openapi": "3.1.0",
         "info": {"title": "LOCALAI API", "version": f"1 ({engine.__version__})"},
         "paths": paths,
-        "components": {"schemas": schemas},
+        "components": {
+            "schemas": schemas,
+            "securitySchemes": {
+                "session": {"type": "apiKey", "in": "cookie", "name": COOKIE},
+                "bearer": {"type": "http", "scheme": "bearer"},
+            },
+        },
+        "security": [{"session": []}, {"bearer": []}],
         "x-permissions": PERMISSIONS,
     }
 
@@ -71,7 +79,7 @@ def _parameters(endpoint: Endpoint) -> list[dict[str, Any]]:
         {"name": name, "in": "query", "required": False, "schema": {"type": "string"}}
         for name in endpoint.query
     ]
-    if endpoint.writes:
+    if endpoint.writes and endpoint.idempotent:
         found.append(
             {
                 "name": "Idempotency-Key",
@@ -89,6 +97,13 @@ def _responses(endpoint: Endpoint) -> dict[str, Any]:
     responses: dict[str, Any] = {str(endpoint.status): {"description": done}}
     for status in ("400", "404", "409"):
         responses[status] = _ERROR
+    if endpoint.permission != "public":
+        responses["401"] = _ERROR  # нет входа или сессия истекла
+        responses["403"] = _ERROR  # недостаточно прав
+    if endpoint.path == "/auth/login":
+        responses["401"] = _ERROR  # неверный логин или пароль
+        responses["403"] = _ERROR  # учётная запись заблокирована
+        responses["429"] = _ERROR  # слишком много попыток
     return responses
 
 

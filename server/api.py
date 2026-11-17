@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -21,41 +24,82 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from engine import Actor, Database, EngineError, idempotency
-from engine.errors import CONFLICT, INVALID, NOT_FOUND, TOO_LARGE
+from engine import SYSTEM, Database, EngineError, access, idempotency, sessions, text
+from engine.access import Access
+from engine.database import Tx
+from engine.errors import (
+    CONFLICT,
+    FORBIDDEN,
+    INVALID,
+    NOT_FOUND,
+    TOO_LARGE,
+    TOO_MANY,
+    UNAUTHORIZED,
+    not_found,
+)
+from engine.sessions import Session
 
 PREFIX = "/api/v1"
+COOKIE = "localai_session"
 log = logging.getLogger("localai.server")
 
-# Права этапа 1. С этапа 2 каждое из них выдаётся ролью; маршрут без права
-# недоступен (API-02). «public» — открытые маршруты, их список виден в одном месте.
+# Право маршрута (API-02). Маршрут без права из этого списка не собирается;
+# «public» — открытые маршруты, их список виден в одном месте. Разделы и
+# действия над реестром выдаёт роль (ROLE-03); для «dataset.*» реестр берётся
+# из пути запроса — сам реестр или реестр записи (``Endpoint.target``).
 PERMISSIONS = {
     "public": "Без входа",
-    "structure.read": "Просмотр структуры: площадки, типы, поля, реестры, справочники",
-    "structure.write": "Изменение структуры",
-    "records.read": "Просмотр записей",
-    "records.write": "Изменение записей",
-    "kks.read": "Просмотр каталога ККС",
-    "kks.write": "Изменение каталога ККС",
-    "audit.read": "Просмотр журнала",
+    "self": "Вошедший пользователь, в том числе обязанный сменить пароль",
+    "session": "Вошедший пользователь",
+    **{f"section.{name}": label for name, label in access.SECTIONS.items()},
+    **{f"dataset.{name}": label for name, label in access.DATASET_ACTIONS.items()},
 }
-_STATUS = {NOT_FOUND: 404, INVALID: 400, CONFLICT: 409, TOO_LARGE: 413}
+_STATUS = {
+    NOT_FOUND: 404,
+    INVALID: 400,
+    CONFLICT: 409,
+    TOO_LARGE: 413,
+    UNAUTHORIZED: 401,
+    FORBIDDEN: 403,
+    TOO_MANY: 429,
+}
+_WRITE_METHODS = ("POST", "PATCH", "PUT", "DELETE")
 MAX_BODY = 10 * 1024 * 1024
 
 
 @dataclass
 class Call:
-    """Всё, что получает обработчик: параметры пути и строки, тело, база и автор."""
+    """Всё, что получает обработчик: параметры пути и строки, тело, база, права."""
 
     params: dict[str, str]
     query: dict[str, str]
     body: Any
-    actor: Actor
+    client: str | None = None
+    throttle: Throttle | None = None
     conn: Any = None  # соединение для чтения или транзакция записи (``tx``)
+    session: Session | None = None
+    # Ответ на вход и выход: новый токен для cookie или "" — стереть cookie.
+    cookie: str | None = None
+    # Поля ответа, которые не сохраняются вместе с ключом идемпотентности:
+    # временный пароль показывается один раз и не лежит в базе открытым.
+    once: dict[str, Any] = field(default_factory=dict)
+    # Отказ, который сообщается после записи транзакции: неудачный вход
+    # должен оставить след в журнале и в счётчике попыток.
+    deferred: EngineError | None = None
 
     @property
     def tx(self) -> Any:
         return self.conn
+
+    @property
+    def reader(self) -> Any:
+        """Соединение для чтения и в маршруте записи — внутри его транзакции."""
+        return self.conn.conn if isinstance(self.conn, Tx) else self.conn
+
+    @property
+    def access(self) -> Access:
+        assert self.session is not None, "маршрут без входа не читает права"
+        return self.session.access
 
     def query_int(self, name: str, default: int) -> int:
         raw = self.query.get(name)
@@ -84,51 +128,94 @@ class Endpoint:
     status: int = 200
     query: tuple[str, ...] = ()
     tag: str = ""
+    # Для права «dataset.*»: что лежит в {id} пути — реестр или запись.
+    target: str | None = None
+    # POST, который только читает (запрос страницы записей).
+    read_only: bool = False
+    # Вход, выход и смена пароля не повторяются по ключу: в отпечатке
+    # запроса оказался бы пароль, а в ответе — токен сессии.
+    idempotent: bool = True
     writes: bool = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "writes",
-            self.method in ("POST", "PATCH", "PUT", "DELETE")
-            and self.permission.endswith(".write"),
-        )
+        if self.permission not in PERMISSIONS:
+            raise ValueError(f"{self.method} {self.path}: неизвестное право {self.permission}")
+        if self.permission.startswith("dataset.") and self.target not in ("dataset", "record"):
+            raise ValueError(f"{self.method} {self.path}: для права на реестр нужен target")
+        object.__setattr__(self, "writes", self.method in _WRITE_METHODS and not self.read_only)
 
     @property
     def summary(self) -> str:
         return (self.handler.__doc__ or "").strip().split("\n")[0]
 
 
-class Server:
-    """Связывает объявления маршрутов с базой."""
+class Throttle:
+    """Ограничение неудачных входов с одного адреса (SEC-02).
 
-    def __init__(self, db: Database, actor: Actor) -> None:
+    Счётчик по учётной записи хранится в базе; этот — в памяти процесса и
+    сдерживает перебор логинов, которых нет в базе.
+    """
+
+    LIMIT = 20
+    WINDOW = 15 * 60
+
+    def __init__(self) -> None:
+        self._failures: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
+
+    def check(self, client: str | None) -> None:
+        with self._lock:
+            recent = self._recent(client or "")
+            if len(recent) >= self.LIMIT:
+                wait = int(recent[0] + self.WINDOW - time.monotonic()) // 60 + 1
+                raise EngineError(
+                    "login_throttled",
+                    f"Слишком много неудачных входов с этого компьютера. Повторите через {wait} мин",
+                    status=TOO_MANY,
+                )
+
+    def fail(self, client: str | None) -> None:
+        with self._lock:
+            self._recent(client or "").append(time.monotonic())
+
+    def _recent(self, client: str) -> deque[float]:
+        found = self._failures.setdefault(client, deque())
+        while found and found[0] < time.monotonic() - self.WINDOW:
+            found.popleft()
+        return found
+
+
+class Server:
+    """Связывает объявления маршрутов с базой и правами."""
+
+    def __init__(self, db: Database) -> None:
         self.db = db
-        self.actor = actor
+        self.throttle = Throttle()
 
     def route(self, endpoint: Endpoint) -> Route:
         async def handle(request: Request) -> Response:
             # Лимит тела проверяется у каждого маршрута до его выполнения, а не
             # только у тех, что ждут тело (API-08).
             raw = await _read_limited(request)
-            body = _body(raw, endpoint)
             call = Call(
                 params=dict(request.path_params),
                 query=dict(request.query_params),
-                body=body,
-                actor=self.actor,
+                body=raw,
+                client=request.client.host if request.client else None,
+                throttle=self.throttle,
             )
             key = request.headers.get("idempotency-key")
-            if endpoint.writes and not key:
-                raise EngineError(
-                    "idempotency_key_required",
-                    "Изменяющий запрос должен нести заголовок Idempotency-Key",
-                    field="Idempotency-Key",
-                )
-            result = await run_in_threadpool(self._run, endpoint, call, key)
+            token = _token(request)
+            result = await run_in_threadpool(self._run, endpoint, call, key, token)
+            if call.deferred is not None:
+                raise call.deferred
             if endpoint.status == 204:
-                return Response(status_code=204)
-            return JSONResponse(result, status_code=endpoint.status)
+                response: Response = Response(status_code=204)
+            else:
+                response = JSONResponse(result, status_code=endpoint.status)
+            if call.cookie is not None:
+                _set_cookie(response, call.cookie, secure=request.url.scheme == "https")
+            return response
 
         return Route(
             PREFIX + endpoint.path,
@@ -137,16 +224,101 @@ class Server:
             name=endpoint.handler.__name__,
         )
 
-    def _run(self, endpoint: Endpoint, call: Call, key: str | None) -> Any:
+    def _run(self, endpoint: Endpoint, call: Call, key: str | None, token: str | None) -> Any:
+        """Сначала права, потом разбор запроса: без входа маршрут не раскрывает,
+        какое тело он ждёт."""
         if not endpoint.writes:
             with self.db.read() as conn:
                 call.conn = conn
-                return endpoint.handler(call)
-        request = {"params": call.params, "query": call.query, "body": _plain(call.body)}
-        with self.db.write(call.actor) as tx:
+                self._authorize(endpoint, call, conn, token)
+                call.body = _body(call.body, endpoint)
+                result = endpoint.handler(call)
+            if call.session is not None and call.session.stale:
+                with self.db.write(call.access.actor) as tx:
+                    sessions.touch(tx, call.session)
+            return result
+        with self.db.write(SYSTEM) as tx:
             call.conn = tx
-            scope = f"{endpoint.method} {endpoint.path}"
-            return idempotency.run(tx, scope, key, request, lambda: endpoint.handler(call))
+            self._authorize(endpoint, call, tx.conn, token)
+            if endpoint.idempotent and not key:
+                raise EngineError(
+                    "idempotency_key_required",
+                    "Изменяющий запрос должен нести заголовок Idempotency-Key",
+                    field="Idempotency-Key",
+                )
+            call.body = _body(call.body, endpoint)
+            if call.session is not None:
+                tx.actor = call.access.actor  # в журнал пишется учётная запись (ROLE-04)
+                if call.session.stale:
+                    sessions.touch(tx, call.session)
+            if not endpoint.idempotent:
+                return endpoint.handler(call)
+            request = {"params": call.params, "query": call.query, "body": _plain(call.body)}
+            # Ключ принадлежит пользователю: чужой ключ не вернёт чужой ответ.
+            owner = call.access.user_id if call.session else "-"
+            scope = f"{owner} {endpoint.method} {endpoint.path}"
+            result = idempotency.run(tx, scope, key, request, lambda: endpoint.handler(call))
+        return {**result, **call.once} if call.once else result
+
+    def _authorize(self, endpoint: Endpoint, call: Call, conn: Any, token: str | None) -> None:
+        """Отказ по умолчанию (API-02): права читаются из базы на каждый запрос (ROLE-09)."""
+        if endpoint.permission == "public":
+            return
+        call.session = sessions.resolve(conn, token, text.now())
+        if endpoint.permission == "self":
+            return
+        if call.access.must_change_password:
+            raise EngineError(
+                "password_change_required",
+                "Сначала смените временный пароль",
+                status=FORBIDDEN,
+            )
+        kind, _, name = endpoint.permission.partition(".")
+        if kind == "section" and not call.access.has(name):
+            raise _forbidden(endpoint.permission)
+        if kind == "dataset" and not call.access.can(_dataset_of(endpoint, call, conn), name):
+            raise _forbidden(endpoint.permission)
+
+
+def _dataset_of(endpoint: Endpoint, call: Call, conn: Any) -> str:
+    if endpoint.target == "dataset":
+        return call.params["id"]
+    row = conn.execute(
+        "SELECT d.id FROM records r JOIN datasets d ON d.seq = r.dataset_seq WHERE r.id = ?",
+        (call.params["id"],),
+    ).fetchone()
+    if row is None:
+        raise not_found("record", call.params["id"])
+    return row[0]
+
+
+def _forbidden(permission: str) -> EngineError:
+    return EngineError(
+        "forbidden",
+        f"Недостаточно прав: {PERMISSIONS[permission].lower()}",
+        status=FORBIDDEN,
+        details={"permission": permission},
+    )
+
+
+def _token(request: Request) -> str | None:
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        return header[7:].strip() or None
+    return request.cookies.get(COOKIE) or None
+
+
+def _set_cookie(response: Response, token: str, *, secure: bool) -> None:
+    """Сессия в cookie, недоступной скриптам страницы; другой сайт её не отправит."""
+    response.set_cookie(
+        COOKIE,
+        token,
+        max_age=int(sessions.LIFETIME.total_seconds()) if token else 0,
+        path="/",
+        httponly=True,
+        samesite="strict",
+        secure=secure,
+    )
 
 
 def _body(raw: bytes, endpoint: Endpoint) -> Any:

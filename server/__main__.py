@@ -17,7 +17,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--host",
         default="127.0.0.1",
-        help="адрес; до появления входа (этап 2) — только этот компьютер",
+        help="адрес; по умолчанию только этот компьютер. В сеть — после HTTPS (SEC-04)",
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args(argv)

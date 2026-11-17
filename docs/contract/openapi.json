@@ -345,6 +345,25 @@
         "title": "KksPatch",
         "type": "object"
       },
+      "Login": {
+        "additionalProperties": false,
+        "properties": {
+          "login": {
+            "title": "Login",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "login",
+          "password"
+        ],
+        "title": "Login",
+        "type": "object"
+      },
       "NameBody": {
         "additionalProperties": false,
         "properties": {
@@ -357,6 +376,72 @@
           "name"
         ],
         "title": "NameBody",
+        "type": "object"
+      },
+      "PasswordChange": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChange",
+        "type": "object"
+      },
+      "Permission": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "section",
+              "dataset",
+              "field",
+              "doc_type"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "target",
+          "action"
+        ],
+        "title": "Permission",
+        "type": "object"
+      },
+      "Permissions": {
+        "additionalProperties": false,
+        "properties": {
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "title": "Permissions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "permissions"
+        ],
+        "title": "Permissions",
         "type": "object"
       },
       "RecordCount": {
@@ -559,6 +644,75 @@
         "title": "RecordQuery",
         "type": "object"
       },
+      "RoleCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "copy_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Copy From"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RoleCreate",
+        "type": "object"
+      },
+      "RolePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          }
+        },
+        "title": "RolePatch",
+        "type": "object"
+      },
       "RollbackBody": {
         "additionalProperties": false,
         "properties": {
@@ -602,6 +756,61 @@
           "name"
         ],
         "title": "TypeCreate",
+        "type": "object"
+      },
+      "UserCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "login": {
+            "title": "Login",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "login",
+          "name",
+          "role_id"
+        ],
+        "title": "UserCreate",
+        "type": "object"
+      },
+      "UserPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "role_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Role Id"
+          }
+        },
+        "title": "UserPatch",
         "type": "object"
       },
       "ValueCreate": {
@@ -685,6 +894,17 @@
         "title": "VersionBody",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "session": {
+        "in": "cookie",
+        "name": "localai_session",
+        "type": "apiKey"
+      }
     }
   },
   "info": {
@@ -744,6 +964,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -769,7 +1009,368 @@
         "tags": [
           "Журнал"
         ],
-        "x-permission": "audit.read"
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "auth_login",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "security": [],
+        "summary": "Войти по логину и паролю; сессия приходит в cookie.",
+        "tags": [
+          "Вход"
+        ],
+        "x-permission": "public"
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "auth_logout",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "Выполнено, без тела ответа"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Выйти: сессия закрывается.",
+        "tags": [
+          "Вход"
+        ],
+        "x-permission": "self"
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "auth_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Текущий пользователь, его роль и права.",
+        "tags": [
+          "Вход"
+        ],
+        "x-permission": "self"
+      }
+    },
+    "/api/v1/auth/password": {
+      "post": {
+        "operationId": "auth_change_password",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Сменить свой пароль; остальные сессии пользователя закрываются.",
+        "tags": [
+          "Вход"
+        ],
+        "x-permission": "self"
+      }
+    },
+    "/api/v1/auth/permissions": {
+      "get": {
+        "operationId": "auth_permission_catalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Что можно выдать роли: разделы, действия над реестром, ограничения полей.",
+        "tags": [
+          "Вход"
+        ],
+        "x-permission": "session"
       }
     },
     "/api/v1/datasets": {
@@ -807,6 +1408,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -828,11 +1449,11 @@
             "description": "Ошибка: код, текст на русском, поле"
           }
         },
-        "summary": "Список реестров, по площадке или типу.",
+        "summary": "Реестры, которые роль может видеть, — по площадке или типу.",
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.read"
+        "x-permission": "session"
       },
       "post": {
         "operationId": "structure_create_dataset",
@@ -872,6 +1493,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -897,7 +1538,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/datasets/{id}": {
@@ -918,6 +1559,26 @@
             "description": "Выполнено"
           },
           "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -952,7 +1613,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.read"
+        "x-permission": "dataset.view"
       },
       "patch": {
         "operationId": "structure_rename_dataset",
@@ -1000,6 +1661,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1025,7 +1706,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/datasets/{id}/archive": {
@@ -1065,6 +1746,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1090,7 +1791,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/datasets/{id}/records": {
@@ -1140,6 +1841,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1165,7 +1886,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.write"
+        "x-permission": "dataset.create"
       }
     },
     "/api/v1/datasets/{id}/records/count": {
@@ -1205,6 +1926,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1230,7 +1971,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.read"
+        "x-permission": "dataset.view"
       }
     },
     "/api/v1/datasets/{id}/records/query": {
@@ -1270,6 +2011,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1295,7 +2056,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.read"
+        "x-permission": "dataset.view"
       }
     },
     "/api/v1/datasets/{id}/restore": {
@@ -1335,6 +2096,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1360,7 +2141,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/dictionaries": {
@@ -1372,6 +2153,26 @@
             "description": "Выполнено"
           },
           "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1406,7 +2207,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.read"
+        "x-permission": "session"
       },
       "post": {
         "operationId": "structure_create_dictionary",
@@ -1446,6 +2247,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1471,7 +2292,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/dictionaries/{id}": {
@@ -1521,6 +2342,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1546,7 +2387,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/dictionaries/{id}/values": {
@@ -1584,6 +2425,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1609,7 +2470,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.read"
+        "x-permission": "session"
       },
       "post": {
         "operationId": "structure_add_value",
@@ -1657,6 +2518,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1682,7 +2563,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/dictionary-values/{id}": {
@@ -1732,6 +2613,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1757,7 +2658,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/fields/{id}": {
@@ -1807,6 +2708,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1832,7 +2753,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/fields/{id}/archive": {
@@ -1872,6 +2793,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1897,7 +2838,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/fields/{id}/restore": {
@@ -1937,6 +2878,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1962,7 +2923,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/kks-aliases/{id}": {
@@ -2002,6 +2963,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2027,7 +3008,7 @@
         "tags": [
           "ККС"
         ],
-        "x-permission": "kks.write"
+        "x-permission": "section.kks"
       }
     },
     "/api/v1/kks/{id}": {
@@ -2048,6 +3029,26 @@
             "description": "Выполнено"
           },
           "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -2082,7 +3083,7 @@
         "tags": [
           "ККС"
         ],
-        "x-permission": "kks.read"
+        "x-permission": "session"
       },
       "patch": {
         "operationId": "kks_update",
@@ -2130,6 +3131,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2155,7 +3176,7 @@
         "tags": [
           "ККС"
         ],
-        "x-permission": "kks.write"
+        "x-permission": "section.kks"
       }
     },
     "/api/v1/kks/{id}/aliases": {
@@ -2205,6 +3226,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2230,7 +3271,7 @@
         "tags": [
           "ККС"
         ],
-        "x-permission": "kks.write"
+        "x-permission": "section.kks"
       }
     },
     "/api/v1/records/{id}": {
@@ -2251,6 +3292,26 @@
             "description": "Выполнено"
           },
           "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -2285,7 +3346,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.read"
+        "x-permission": "dataset.view"
       },
       "patch": {
         "operationId": "records_update_record",
@@ -2333,6 +3394,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2358,7 +3439,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.write"
+        "x-permission": "dataset.edit"
       }
     },
     "/api/v1/records/{id}/archive": {
@@ -2408,6 +3489,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2433,7 +3534,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.write"
+        "x-permission": "dataset.archive"
       }
     },
     "/api/v1/records/{id}/history": {
@@ -2454,6 +3555,26 @@
             "description": "Выполнено"
           },
           "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -2488,7 +3609,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.read"
+        "x-permission": "dataset.view"
       }
     },
     "/api/v1/records/{id}/restore": {
@@ -2538,6 +3659,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2563,7 +3704,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.write"
+        "x-permission": "dataset.archive"
       }
     },
     "/api/v1/records/{id}/rollback": {
@@ -2613,6 +3754,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2638,7 +3799,7 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.write"
+        "x-permission": "dataset.edit"
       }
     },
     "/api/v1/records/{id}/versions/{n}": {
@@ -2676,6 +3837,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2701,7 +3882,591 @@
         "tags": [
           "Записи"
         ],
-        "x-permission": "records.read"
+        "x-permission": "dataset.view"
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "operationId": "access_list_roles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Роли с числом пользователей.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      },
+      "post": {
+        "operationId": "access_create_role",
+        "parameters": [
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Создать роль, пустую или копией существующей.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/roles/{id}": {
+      "get": {
+        "operationId": "access_get_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Роль и её матрица прав.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      },
+      "patch": {
+        "operationId": "access_update_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Переименовать роль или сменить описание; права остаются за ID роли.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/roles/{id}/archive": {
+      "post": {
+        "operationId": "access_archive_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Отключить роль: её пользователи не войдут, открытые сессии закрываются.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/roles/{id}/permissions": {
+      "put": {
+        "operationId": "access_set_permissions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Permissions"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Заменить матрицу прав роли целиком.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/roles/{id}/restore": {
+      "post": {
+        "operationId": "access_restore_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Вернуть отключённую роль.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
       }
     },
     "/api/v1/sites": {
@@ -2713,6 +4478,26 @@
             "description": "Выполнено"
           },
           "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -2747,7 +4532,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.read"
+        "x-permission": "session"
       },
       "post": {
         "operationId": "structure_create_site",
@@ -2787,6 +4572,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2812,7 +4617,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/sites/{id}": {
@@ -2862,6 +4667,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2887,7 +4712,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/sites/{id}/kks": {
@@ -2937,6 +4762,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2962,7 +4807,7 @@
         "tags": [
           "ККС"
         ],
-        "x-permission": "kks.write"
+        "x-permission": "section.kks"
       }
     },
     "/api/v1/sites/{id}/kks/resolve": {
@@ -3000,6 +4845,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3025,7 +4890,7 @@
         "tags": [
           "ККС"
         ],
-        "x-permission": "kks.read"
+        "x-permission": "session"
       }
     },
     "/api/v1/sites/{id}/kks/search": {
@@ -3071,6 +4936,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3096,7 +4981,7 @@
         "tags": [
           "ККС"
         ],
-        "x-permission": "kks.read"
+        "x-permission": "session"
       }
     },
     "/api/v1/system/health": {
@@ -3138,6 +5023,7 @@
             "description": "Ошибка: код, текст на русском, поле"
           }
         },
+        "security": [],
         "summary": "Состояние сервера и базы.",
         "tags": [
           "Система"
@@ -3154,6 +5040,26 @@
             "description": "Выполнено"
           },
           "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -3188,7 +5094,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.read"
+        "x-permission": "session"
       },
       "post": {
         "operationId": "structure_create_type",
@@ -3228,6 +5134,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3253,7 +5179,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/types/{id}": {
@@ -3283,6 +5209,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3304,11 +5250,11 @@
             "description": "Ошибка: код, текст на русском, поле"
           }
         },
-        "summary": "Тип с полями в порядке показа.",
+        "summary": "Тип с полями в порядке показа; скрытые от роли поля не показываются.",
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.read"
+        "x-permission": "session"
       },
       "patch": {
         "operationId": "structure_rename_type",
@@ -3356,6 +5302,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3381,7 +5347,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/types/{id}/archive": {
@@ -3421,6 +5387,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3446,7 +5432,7 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/types/{id}/fields": {
@@ -3496,6 +5482,26 @@
             },
             "description": "Ошибка: код, текст на русском, поле"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3521,18 +5527,608 @@
         "tags": [
           "Структура"
         ],
-        "x-permission": "structure.write"
+        "x-permission": "section.structure"
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "operationId": "access_list_users",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Учётные записи; пароли и их хэши не выдаются.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      },
+      "post": {
+        "operationId": "access_create_user",
+        "parameters": [
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Создать учётную запись; временный пароль показывается один раз.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/users/{id}": {
+      "get": {
+        "operationId": "access_get_user",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Учётная запись.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      },
+      "patch": {
+        "operationId": "access_update_user",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Сменить имя или роль пользователя.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/users/{id}/block": {
+      "post": {
+        "operationId": "access_block_user",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Заблокировать: сессии закрываются, вход невозможен.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/users/{id}/reset-password": {
+      "post": {
+        "operationId": "access_reset_password",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Сбросить пароль на временный; при входе пользователь задаст свой.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/users/{id}/unblock": {
+      "post": {
+        "operationId": "access_unblock_user",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Снять блокировку.",
+        "tags": [
+          "Пользователи и роли"
+        ],
+        "x-permission": "section.admin"
       }
     }
   },
+  "security": [
+    {
+      "session": []
+    },
+    {
+      "bearer": []
+    }
+  ],
   "x-permissions": {
-    "audit.read": "Просмотр журнала",
-    "kks.read": "Просмотр каталога ККС",
-    "kks.write": "Изменение каталога ККС",
+    "dataset.archive": "Отправлять в архив и возвращать",
+    "dataset.create": "Создавать",
+    "dataset.edit": "Править",
+    "dataset.export": "Экспорт",
+    "dataset.import": "Импорт",
+    "dataset.view": "Видеть записи",
     "public": "Без входа",
-    "records.read": "Просмотр записей",
-    "records.write": "Изменение записей",
-    "structure.read": "Просмотр структуры: площадки, типы, поля, реестры, справочники",
-    "structure.write": "Изменение структуры"
+    "section.admin": "Администрирование: пользователи, роли, журнал",
+    "section.ai": "ИИ",
+    "section.backups": "Резервные копии",
+    "section.kks": "Каталог ККС: коды, описания, псевдонимы",
+    "section.structure": "Структура: площадки, типы, поля, реестры, справочники",
+    "section.timesheet": "Табель",
+    "section.tools": "Инженерные инструменты",
+    "self": "Вошедший пользователь, в том числе обязанный сменить пароль",
+    "session": "Вошедший пользователь"
   }
 }

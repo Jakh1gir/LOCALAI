@@ -8,7 +8,9 @@ from engine import structure
 from server import schemas
 from server.api import Call, Endpoint
 
-READ, WRITE = "structure.read", "structure.write"
+# Структуру видит каждый вошедший: без неё не показать реестр. Меняет —
+# только роль с разделом «Структура».
+READ, WRITE = "session", "section.structure"
 
 
 def list_sites(call: Call) -> dict[str, Any]:
@@ -37,8 +39,12 @@ def create_type(call: Call) -> dict[str, Any]:
 
 
 def get_type(call: Call) -> dict[str, Any]:
-    """Тип с полями в порядке показа."""
-    return structure.get_type(call.conn, call.params["id"])
+    """Тип с полями в порядке показа; скрытые от роли поля не показываются."""
+    found = structure.get_type(call.conn, call.params["id"])
+    if not call.access.has("structure"):
+        hidden = call.access.hidden
+        found["fields"] = [item for item in found["fields"] if item["id"] not in hidden]
+    return found
 
 
 def rename_type(call: Call) -> dict[str, Any]:
@@ -89,12 +95,11 @@ def restore_field(call: Call) -> dict[str, Any]:
 
 
 def list_datasets(call: Call) -> dict[str, Any]:
-    """Список реестров, по площадке или типу."""
-    return {
-        "items": structure.list_datasets(
-            call.conn, site_id=call.query.get("site_id"), type_id=call.query.get("type_id")
-        )
-    }
+    """Реестры, которые роль может видеть, — по площадке или типу."""
+    found = structure.list_datasets(
+        call.conn, site_id=call.query.get("site_id"), type_id=call.query.get("type_id")
+    )
+    return {"items": [item for item in found if call.access.can(item["id"], "view")]}
 
 
 def create_dataset(call: Call) -> dict[str, Any]:
@@ -181,7 +186,7 @@ ENDPOINTS = [
     _e("POST", "/fields/{id}/restore", restore_field, WRITE),
     _e("GET", "/datasets", list_datasets, READ, query=("site_id", "type_id")),
     _e("POST", "/datasets", create_dataset, WRITE, body=schemas.DatasetCreate, status=201),
-    _e("GET", "/datasets/{id}", get_dataset, READ),
+    _e("GET", "/datasets/{id}", get_dataset, "dataset.view", target="dataset"),
     _e("PATCH", "/datasets/{id}", rename_dataset, WRITE, body=schemas.NameBody),
     _e("POST", "/datasets/{id}/archive", archive_dataset, WRITE),
     _e("POST", "/datasets/{id}/restore", restore_dataset, WRITE),
