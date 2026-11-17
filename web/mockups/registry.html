@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru" data-screen="registry">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>В эксплуатации · LOCALAI</title>
+  <script src="ui.js"></script>
+  <link rel="stylesheet" href="../src/tokens.css" />
+  <link rel="stylesheet" href="mockups.css" />
+  <script src="registry.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#work">К рабочей области</a>
+  <div class="app">
+    <aside class="rail" data-rail></aside>
+    <div class="workspace">
+      <header class="topbar" data-topbar></header>
+      <main class="work" id="work" tabindex="-1">
+        <header class="page-heading">
+          <div>
+            <h1>В эксплуатации</h1>
+            <p>ТЭЦ-1 <span aria-hidden="true">·</span> Реестр оборудования</p>
+          </div>
+          <div class="heading-actions">
+            <button class="button" type="button" disabled>Вставить из Excel</button>
+            <button class="button" type="button" disabled>Пакетная правка</button>
+            <a class="button primary" data-page-link href="inspector.html">
+              <span data-icon="layout"></span>Инспектор записи
+            </a>
+          </div>
+        </header>
+
+        <section class="conflict" aria-labelledby="conflict-title" data-conflict>
+          <div class="conflict-copy">
+            <span data-icon="warning"></span>
+            <div>
+              <h2 id="conflict-title">Конфликт версий</h2>
+              <p>Количество изменилось после открытия записи.</p>
+            </div>
+          </div>
+          <div class="conflict-values" aria-label="Сравнение количества">
+            <span class="version-value"><span>Сервер · версия 13</span><strong>3</strong></span>
+            <span data-icon="arrow"></span>
+            <span class="version-value"><span>Ваша правка · версия 12</span><strong data-draft>4</strong></span>
+          </div>
+          <div class="panel-actions">
+            <button class="button" type="button" data-resolve="server">Принять с сервера</button>
+            <button class="button primary" type="button" data-resolve="draft">Повторить правку</button>
+          </div>
+        </section>
+
+        <section class="panel" aria-label="Реестр оборудования">
+          <div class="toolbar">
+            <label class="search-field" for="registry-search">
+              <span data-icon="search"></span>
+              <input id="registry-search" type="search" aria-label="Поиск по реестру" placeholder="Поиск по названию, ККС или номеру" />
+            </label>
+            <div class="toolbar-right">
+              <select aria-label="Сохранённый вид" disabled><option>Основной вид</option></select>
+              <div class="density-switch" role="group" aria-label="Плотность таблицы">
+                <button type="button" data-set-density="dense">Плотный</button>
+                <button type="button" data-set-density="roomy">Свободный</button>
+              </div>
+            </div>
+          </div>
+          <div class="scroll-table" tabindex="0" role="region" aria-label="Строки реестра">
+            <table class="registry-table" aria-label="В эксплуатации">
+              <thead>
+                <tr>
+                  <th scope="col">ККС</th>
+                  <th scope="col">Наименование</th>
+                  <th scope="col">Инв. номер</th>
+                  <th scope="col">
+                    <div class="heading-control">Изготовитель
+                      <button class="filter-trigger" type="button" aria-label="Фильтр по изготовителю"
+                        aria-controls="maker-filter" aria-expanded="false" data-filter-button>
+                        <span data-icon="filter"></span>
+                      </button>
+                    </div>
+                  </th>
+                  <th scope="col" class="align-end">Количество</th>
+                  <th scope="col">Состояние</th>
+                  <th scope="col">Следующая проверка</th>
+                </tr>
+              </thead>
+              <tbody data-rows></tbody>
+            </table>
+          </div>
+          <footer class="paging">
+            <span class="tabular" role="status" data-page-summary></span>
+            <div class="paging-controls" aria-label="Страницы реестра">
+              <button class="icon-button" aria-label="Предыдущие 50 строк" type="button" data-page-step="-1">
+                <span data-icon="left"></span>
+              </button>
+              <span class="tabular" data-page-number></span>
+              <button class="icon-button" aria-label="Следующие 50 строк" type="button" data-page-step="1">
+                <span data-icon="right"></span>
+              </button>
+            </div>
+          </footer>
+        </section>
+        <form id="maker-filter" popover class="filter-popover" aria-labelledby="maker-title">
+          <h2 id="maker-title">Изготовитель</h2>
+          <div class="filter-options" data-makers></div>
+          <div class="panel-actions">
+            <button class="button" type="button" data-filter-reset>Сбросить</button>
+            <button class="button primary" type="submit">Применить</button>
+          </div>
+        </form>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

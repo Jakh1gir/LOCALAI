@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru" data-screen="kks">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>10LAC10AP001 · LOCALAI</title>
+  <script src="ui.js"></script>
+  <link rel="stylesheet" href="../src/tokens.css" />
+  <link rel="stylesheet" href="mockups.css" />
+  <script src="relations.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#work">К рабочей области</a>
+  <div class="app">
+    <aside class="rail" data-rail></aside>
+    <div class="workspace">
+      <header class="topbar" data-topbar></header>
+      <main class="work" id="work" tabindex="-1">
+        <header class="page-heading kks-heading">
+          <div>
+            <h1 class="code">10LAC10AP001</h1>
+            <p>Насос питательный ПЭН-1</p>
+          </div>
+          <a class="button" data-page-link href="inspector.html">
+            <span data-icon="left"></span>К записи оборудования
+          </a>
+        </header>
+        <div class="split">
+          <section class="panel" aria-labelledby="relations-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="relations-title">Связанные записи</h2>
+                <p class="relation-count" data-linked-count role="status">Действующих записей — 5</p>
+              </div>
+              <div class="panel-actions">
+                <select aria-label="Фильтр по реестру" data-registry-select>
+                  <option value="">Все реестры</option>
+                  <option value="in-use">В эксплуатации</option>
+                  <option value="stock">Склад</option>
+                </select>
+                <select aria-label="Фильтр по роли" data-role-select>
+                  <option value="">Все роли</option>
+                  <option value="object">Объект</option>
+                  <option value="route_start">Начало трассы</option>
+                  <option value="signal">Сигнал</option>
+                  <option value="related">Связанный объект</option>
+                </select>
+              </div>
+            </div>
+            <div class="scroll-table" role="region" aria-label="Связи по реестрам">
+              <table class="relation-table" aria-label="Записи объекта по реестрам и ролям">
+                <thead>
+                  <tr><th scope="col">Запись</th><th scope="col">Роль ККС</th><th scope="col">Состояние</th></tr>
+                </thead>
+                <tbody data-registry="in-use">
+                  <tr class="registry-group"><th scope="rowgroup" colspan="3">В эксплуатации <span class="muted tabular" data-group-count>3</span></th></tr>
+                  <tr data-role="object">
+                    <td><a class="row-link" href="inspector.html" data-page-link>Насос питательный ПЭН-1</a></td>
+                    <td><span class="badge" data-tone="good">Объект</span></td>
+                    <td><span class="badge" data-tone="good"><span class="badge-dot"></span>В работе</span></td>
+                  </tr>
+                  <tr data-role="route_start">
+                    <td>Кабель питания ПЭН-1 · КЛ-07</td><td><span class="badge">Начало трассы</span></td>
+                    <td><span class="badge" data-tone="good"><span class="badge-dot"></span>В работе</span></td>
+                  </tr>
+                  <tr data-role="signal">
+                    <td>Сигнал «ПЭН-1. Авария»</td><td><span class="badge">Сигнал</span></td>
+                    <td><span class="badge" data-tone="good"><span class="badge-dot"></span>В работе</span></td>
+                  </tr>
+                </tbody>
+                <tbody data-registry="stock">
+                  <tr class="registry-group"><th scope="rowgroup" colspan="3">Склад <span class="muted tabular" data-group-count>2</span></th></tr>
+                  <tr data-role="related">
+                    <td>Резервный двигатель ПЭН-1</td><td><span class="badge">Связанный объект</span></td>
+                    <td><span class="badge"><span class="badge-dot"></span>В резерве</span></td>
+                  </tr>
+                  <tr data-role="related">
+                    <td>Ремкомплект питательного насоса</td><td><span class="badge">Связанный объект</span></td>
+                    <td><span class="badge"><span class="badge-dot"></span>На складе</span></td>
+                  </tr>
+                </tbody>
+                <tbody data-no-links hidden><tr><td class="empty-row" colspan="3">Нет записей с такими условиями.</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+          <aside class="kks-side" aria-label="Дополнительные сведения о ККС">
+            <section class="panel side-panel" aria-labelledby="aliases-title">
+              <h2 id="aliases-title"><span data-icon="link"></span>Псевдонимы</h2>
+              <ul class="inline-list">
+                <li><span class="code">10LAC10AP01</span><span class="badge">Прежний код</span></li>
+                <li><span class="code">ПЭН-1</span><span class="badge">Синоним</span></li>
+              </ul>
+            </section>
+            <section class="panel side-panel" aria-labelledby="documents-title">
+              <h2 id="documents-title"><span data-icon="file"></span>Документы</h2>
+              <div class="placeholder">
+                <span class="placeholder-icon" data-icon="file"></span>
+                <div><strong>Паспорт насоса</strong><small>Файл не привязан</small></div>
+              </div>
+            </section>
+            <section class="panel side-panel" aria-labelledby="sheets-title">
+              <h2 id="sheets-title"><span data-icon="diagram"></span>Листы схем</h2>
+              <div class="placeholder">
+                <span class="placeholder-icon" data-icon="diagram"></span>
+                <div><strong>Технологическая схема ПЭН</strong><small>Лист не привязан</small></div>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
