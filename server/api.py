@@ -11,6 +11,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -107,7 +108,10 @@ class Server:
 
     def route(self, endpoint: Endpoint) -> Route:
         async def handle(request: Request) -> Response:
-            body = await _body(request, endpoint)
+            # Лимит тела проверяется у каждого маршрута до его выполнения, а не
+            # только у тех, что ждут тело (API-08).
+            raw = await _read_limited(request)
+            body = _body(raw, endpoint)
             call = Call(
                 params=dict(request.path_params),
                 query=dict(request.query_params),
@@ -145,12 +149,13 @@ class Server:
             return idempotency.run(tx, scope, key, request, lambda: endpoint.handler(call))
 
 
-async def _body(request: Request, endpoint: Endpoint) -> Any:
+def _body(raw: bytes, endpoint: Endpoint) -> Any:
     if endpoint.body is None:
         return None
-    raw = await _read_limited(request)
     try:
-        data = json.loads(raw or b"{}")
+        # Дробные числа читаются как Decimal: иначе точность теряется ещё до
+        # проверки значения, и 9007199254740993.0 молча станет ...992.
+        data = json.loads(raw or b"{}", parse_float=Decimal)
     except ValueError:
         raise EngineError("request_json", "Тело запроса не является JSON") from None
     try:

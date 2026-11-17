@@ -7,15 +7,14 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sqlite3
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
-from urllib.parse import quote
 
+from engine import snapshot
 from engine.errors import EngineError
 
 DATABASE_FILE = "local_db.sqlite3"
@@ -419,35 +418,8 @@ def _read_only_copy(path: Path, target: Path) -> sqlite3.Connection:
     чтение не держало блокировку на рабочей базе Local_DB и видело один
     момент времени, даже если Local_DB продолжает работать.
     """
-    wal = path.with_name(path.name + "-wal")
-    shm = path.with_name(path.name + "-shm")
-    if not wal.exists():
-        # Журнала нет: Local_DB не запущена. Неизменяемое открытие не создаёт
-        # рядом с базой служебных файлов.
-        options = "mode=ro&immutable=1"
-    elif not shm.exists():
-        # Журнал есть, а файла общей памяти нет: Local_DB завершилась, не
-        # перенеся журнал в базу. Чтение на месте создало бы файл -shm рядом с
-        # источником, поэтому база и журнал копируются как файлы и читаются в копии.
-        staged = target.parent / "staged"
-        staged.mkdir()
-        shutil.copy2(path, staged / path.name)
-        shutil.copy2(wal, staged / wal.name)
-        path, options = staged / path.name, "mode=rw"
-    else:
-        # Журнал и файл общей памяти есть: Local_DB работает. Читаем на месте,
-        # как любой другой читатель; новых файлов не появляется.
-        options = "mode=ro"
-    uri = f"file:{quote(str(path.resolve()))}?{options}"
     try:
-        source = sqlite3.connect(uri, uri=True)
-        _register_functions(source)
-        try:
-            copy = sqlite3.connect(target)
-            source.backup(copy)
-            copy.close()
-        finally:
-            source.close()
+        snapshot.copy_untouched(path, target, _register_functions)
     except sqlite3.Error as error:
         raise EngineError(
             "localdb_unreadable", f"Не удалось прочитать базу Local_DB: {error}"
