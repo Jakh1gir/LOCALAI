@@ -9,17 +9,20 @@ from starlette.exceptions import HTTPException
 
 from engine import Database, EngineError, open_database
 from server import api
+from server import backups as backup_files
 from server.routes import ENDPOINTS
 
 
-def create_app(database: str | Path | Database) -> Starlette:
+def create_app(database: str | Path | Database, *, backups: str | Path | None = None) -> Starlette:
     """Приложение поверх базы; база открывается и доводится до текущей схемы сразу.
 
     Каждый маршрут, кроме открытых, требует входа (API-02). Первого
     администратора создаёт ``python -m server.admin``.
     """
     db = database if isinstance(database, Database) else open_database(str(database))
-    server = api.Server(db)
+    folder = Path(backups) if backups else Path(db.path).resolve().parent / "backups"
+    backup_files.clean_work(folder)
+    server = api.Server(db, folder)
     app = Starlette(
         routes=[server.route(endpoint) for endpoint in ENDPOINTS],
         exception_handlers={

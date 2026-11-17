@@ -15,6 +15,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -24,7 +25,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from engine import SYSTEM, Database, EngineError, access, idempotency, sessions, text
+from engine import SYSTEM, Database, EngineError, access, idempotency, network, sessions, text
 from engine.access import Access
 from engine.database import Tx
 from engine.errors import (
@@ -76,6 +77,9 @@ class Call:
     body: Any
     client: str | None = None
     throttle: Throttle | None = None
+    # Для маршрутов, которые сами управляют транзакциями (``Endpoint.manual``).
+    db: Database | None = None
+    backups: Path | None = None
     conn: Any = None  # соединение для чтения или транзакция записи (``tx``)
     session: Session | None = None
     # Ответ на вход и выход: новый токен для cookie или "" — стереть cookie.
@@ -135,6 +139,11 @@ class Endpoint:
     # Вход, выход и смена пароля не повторяются по ключу: в отпечатке
     # запроса оказался бы пароль, а в ответе — токен сессии.
     idempotent: bool = True
+    # Долгое действие с файлами вне транзакции (копия базы, восстановление):
+    # права проверяются в коротком чтении, дальше обработчик сам открывает
+    # транзакции и не держит очередь записи. Повтора по ключу у него нет: его
+    # результат — файл, а не строки в той же транзакции.
+    manual: bool = False
     writes: bool = field(init=False)
 
     def __post_init__(self) -> None:
@@ -142,7 +151,10 @@ class Endpoint:
             raise ValueError(f"{self.method} {self.path}: неизвестное право {self.permission}")
         if self.permission.startswith("dataset.") and self.target not in ("dataset", "record"):
             raise ValueError(f"{self.method} {self.path}: для права на реестр нужен target")
-        object.__setattr__(self, "writes", self.method in _WRITE_METHODS and not self.read_only)
+        if self.manual and self.idempotent:
+            raise ValueError(f"{self.method} {self.path}: ручной маршрут не повторяется по ключу")
+        writes = self.method in _WRITE_METHODS and not self.read_only and not self.manual
+        object.__setattr__(self, "writes", writes)
 
     @property
     def summary(self) -> str:
@@ -188,8 +200,9 @@ class Throttle:
 class Server:
     """Связывает объявления маршрутов с базой и правами."""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, backups: Path) -> None:
         self.db = db
+        self.backups = backups
         self.throttle = Throttle()
 
     def route(self, endpoint: Endpoint) -> Route:
@@ -203,12 +216,16 @@ class Server:
                 body=raw,
                 client=request.client.host if request.client else None,
                 throttle=self.throttle,
+                db=self.db if endpoint.manual else None,
+                backups=self.backups if endpoint.manual else None,
             )
             key = request.headers.get("idempotency-key")
             token = _token(request)
             result = await run_in_threadpool(self._run, endpoint, call, key, token)
             if call.deferred is not None:
                 raise call.deferred
+            if isinstance(result, Response):  # файл копии и подобное
+                return result
             if endpoint.status == 204:
                 response: Response = Response(status_code=204)
             else:
@@ -227,6 +244,11 @@ class Server:
     def _run(self, endpoint: Endpoint, call: Call, key: str | None, token: str | None) -> Any:
         """Сначала права, потом разбор запроса: без входа маршрут не раскрывает,
         какое тело он ждёт."""
+        if endpoint.manual:
+            with self.db.read() as conn:
+                self._authorize(endpoint, call, conn, token)
+                call.body = _body(call.body, endpoint)
+            return endpoint.handler(call)
         if not endpoint.writes:
             with self.db.read() as conn:
                 call.conn = conn
@@ -262,6 +284,7 @@ class Server:
 
     def _authorize(self, endpoint: Endpoint, call: Call, conn: Any, token: str | None) -> None:
         """Отказ по умолчанию (API-02): права читаются из базы на каждый запрос (ROLE-09)."""
+        network.check(conn, call.client)  # список адресов действует и на открытые маршруты
         if endpoint.permission == "public":
             return
         call.session = sessions.resolve(conn, token, text.now())
