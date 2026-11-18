@@ -84,6 +84,8 @@ class Call:
     # Для маршрутов, которые сами управляют транзакциями (``Endpoint.manual``).
     db: Database | None = None
     backups: Path | None = None
+    # Папка рабочих файлов мастера импорта: загруженные книги.
+    imports: Path | None = None
     conn: Any = None  # соединение для чтения или транзакция записи (``tx``)
     session: Session | None = None
     # Ответ на вход и выход: новый токен для cookie или "" — стереть cookie.
@@ -151,6 +153,9 @@ class Endpoint:
     # Ожидание событий (API-09): если ответ пуст, маршрут повторяется после
     # каждой записи в базу, пока не появятся события или не выйдет ``wait``.
     poll: bool = False
+    # Тело — файл как есть (книга Excel), а не JSON; ``max_body`` — его предел.
+    raw_body: bool = False
+    max_body: int = MAX_BODY
     writes: bool = field(init=False)
 
     def __post_init__(self) -> None:
@@ -160,6 +165,8 @@ class Endpoint:
             raise ValueError(f"{self.method} {self.path}: для права на реестр нужен target")
         if self.manual and self.idempotent:
             raise ValueError(f"{self.method} {self.path}: ручной маршрут не повторяется по ключу")
+        if self.raw_body and (self.body is not None or self.idempotent):
+            raise ValueError(f"{self.method} {self.path}: файл в теле — без схемы и без ключа")
         writes = self.method in _WRITE_METHODS and not self.read_only and not self.manual
         object.__setattr__(self, "writes", writes)
 
@@ -245,9 +252,10 @@ def _wake(future: asyncio.Future[None]) -> None:
 class Server:
     """Связывает объявления маршрутов с базой и правами."""
 
-    def __init__(self, db: Database, backups: Path) -> None:
+    def __init__(self, db: Database, backups: Path, imports: Path | None = None) -> None:
         self.db = db
         self.backups = backups
+        self.imports = imports or backups.parent / "imports"
         self.throttle = Throttle()
         self.changes = Changes()
         db.on_commit(self.changes.notify)
@@ -256,7 +264,7 @@ class Server:
         async def handle(request: Request) -> Response:
             # Лимит тела проверяется у каждого маршрута до его выполнения, а не
             # только у тех, что ждут тело (API-08).
-            raw = await _read_limited(request)
+            raw = await _read_limited(request, endpoint.max_body)
             call = Call(
                 params=dict(request.path_params),
                 query=dict(request.query_params),
@@ -265,6 +273,7 @@ class Server:
                 throttle=self.throttle,
                 db=self.db if endpoint.manual else None,
                 backups=self.backups if endpoint.manual else None,
+                imports=self.imports,
             )
             key = request.headers.get("idempotency-key")
             token = _token(request)
@@ -424,6 +433,8 @@ def _set_cookie(response: Response, token: str, *, secure: bool) -> None:
 
 
 def _body(raw: bytes, endpoint: Endpoint) -> Any:
+    if endpoint.raw_body:
+        return raw
     if endpoint.body is None:
         return None
     try:
@@ -438,20 +449,20 @@ def _body(raw: bytes, endpoint: Endpoint) -> Any:
         raise _validation_error(error) from None
 
 
-async def _read_limited(request: Request) -> bytes:
-    """Тело запроса не больше ``MAX_BODY``; лишнее не читается в память."""
+async def _read_limited(request: Request, limit: int = MAX_BODY) -> bytes:
+    """Тело запроса не больше ``limit``; лишнее не читается в память."""
     too_large = EngineError(
         "request_too_large",
-        f"Тело запроса больше {MAX_BODY // (1024 * 1024)} МиБ",
+        f"Тело запроса больше {limit // (1024 * 1024)} МиБ",
         status=TOO_LARGE,
     )
     declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > MAX_BODY:
+    if declared.isdigit() and int(declared) > limit:
         raise too_large
     chunks, size = [], 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > MAX_BODY:
+        if size > limit:
             raise too_large
         chunks.append(chunk)
     return b"".join(chunks)

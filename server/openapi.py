@@ -49,6 +49,13 @@ def build(endpoints: list[Endpoint] = ENDPOINTS) -> dict[str, Any]:
                     "application/json": {"schema": {"$ref": f"#/components/schemas/{name}"}}
                 },
             }
+        if endpoint.raw_body:
+            operation["requestBody"] = {
+                "required": True,
+                "content": {
+                    "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+                },
+            }
         paths.setdefault(PREFIX + endpoint.path, {})[endpoint.method.lower()] = operation
     return {
         "openapi": "3.1.0",

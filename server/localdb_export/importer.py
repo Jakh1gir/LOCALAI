@@ -78,10 +78,34 @@ def _load(tx: Tx, sheet: Sheet, site_name: str | None) -> dict[str, Any]:
     for mode, rows in groups.items():
         layout = magnet.suggest_layout(sheet.headers, [row for _, row in rows], split)
         layout.service = service
-        signals = layout.signal and any(row.get(layout.signal) not in (None, "") for _, row in rows)
-        loader = _Signals if signals else _Devices
-        report["modes"][mode] = loader(tx, site, mode, sheet.headers, layout, report).load(rows)
+        report["modes"][mode] = load_group(tx, site, mode, sheet.headers, rows, layout, report)
     return report
+
+
+def is_signal_table(layout: Layout, rows: list[tuple[int, dict[str, Any]]]) -> bool:
+    return bool(layout.signal) and any(row.get(layout.signal) not in (None, "") for _, row in rows)
+
+
+def target_names(name: str, signals: bool) -> list[str]:
+    """Реестры, в которые ляжет группа строк: «имя» или «имя — сигналы» и «имя — кабели»."""
+    return [f"{name} — сигналы", f"{name} — кабели"] if signals else [name]
+
+
+def load_group(
+    tx: Tx,
+    site: dict[str, Any],
+    name: str,
+    headers: list[str],
+    rows: list[tuple[int, dict[str, Any]]],
+    layout: Layout,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    """Одна группа строк: таблица сигналов — магнитом, иначе «строка — аппарат».
+
+    Ошибки записи строк собираются в ``report["write_errors"]``.
+    """
+    loader = _Signals if is_signal_table(layout, rows) else _Devices
+    return loader(tx, site, name, headers, layout, report).load(rows)
 
 
 class _Writer:
@@ -133,7 +157,7 @@ class _Devices(_Writer):
         specs = [{"name": kks_column, "kind": "kks", "kks_role": "object", "unique": True}]
         specs += [{"name": name, "kind": "text"} for name in columns]
         kind, keys = self.type_with(self.mode, specs)
-        dataset = self.dataset(self.mode, kind["id"])
+        dataset = self.dataset(target_names(self.mode, False)[0], kind["id"])
         schema = structure.load_schema(self.tx.conn, kind["id"])
         counts = Counts()
         for number, row in plan.rows.values():
@@ -155,7 +179,7 @@ class _Signals(_Writer):
         lay = self.layout
         plan = magnet.plan_signals(rows, lay, _splitter(self.tx))
         cable_type, cable_keys = self.type_with("Кабель", cable_specs(lay.places))
-        cables = self.dataset(f"{self.mode} — кабели", cable_type["id"])
+        cables = self.dataset(target_names(self.mode, True)[1], cable_type["id"])
         cable_schema = structure.load_schema(self.tx.conn, cable_type["id"])
         cable_counts = Counts()
         for cable in plan.cables.values():
@@ -183,7 +207,7 @@ class _Signals(_Writer):
         others = [name for name in self.others(used) if name in filled]
         specs += [{"name": name, "kind": "text"} for name in others]
         signal_type, keys = self.type_with("Сигнал", specs)
-        signals = self.dataset(f"{self.mode} — сигналы", signal_type["id"])
+        signals = self.dataset(target_names(self.mode, True)[0], signal_type["id"])
         schema = structure.load_schema(self.tx.conn, signal_type["id"])
         key = keys["Канал ввода-вывода"] if lay.channel else keys["Код сигнала"]
         counts = Counts()
