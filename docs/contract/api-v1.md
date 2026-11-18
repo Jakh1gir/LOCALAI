@@ -134,7 +134,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | `GET /backups/{name}/file` | — | файл копии (`application/octet-stream`) |
 | `POST /backups/{name}/restore` | `{password}` | `{restored, protective_backup, schema_version}` |
 
-Копия в списке: `{name, size, created_at, label, schema_version, database_id, app_version}`. Файл, который не читается как копия, приходит с полем `error`.
+Копия в списке: `{name, size, created_at, label, protective, schema_version, database_id, app_version}`. `protective: true` — защитная копия, сделанная сервером перед восстановлением; признак записан в заголовке копии, подпись «Перед восстановлением» его не даёт. У копий, сделанных до этого признака, — `false`. Файл, который не читается как копия, приходит с полем `error`.
 
 - **Копия зашифрована** (SEC-09): AES-256-GCM, ключ из пароля через Argon2id. Пароль — от 12 символов, в базе не хранится; без него копию не восстановить. Время, подпись и версия схемы читаются без пароля, чтобы показать список.
 - Копия делается из согласованного снимка базы и проверяется (`integrity_check`) до шифрования. Работа других пользователей во время копии не останавливается.
