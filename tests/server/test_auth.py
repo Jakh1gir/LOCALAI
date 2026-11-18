@@ -363,3 +363,21 @@ def test_cli_creates_the_first_admin_and_resets_a_forgotten_password(tmp_path, m
     temporary = re.search(r": (\S+)\n", capsys.readouterr().out).group(1)
     fresh = Client(app, login="boss", password=temporary)
     assert fresh.get("/users").json()["error"]["code"] == "password_change_required"
+
+
+def test_admin_without_data_rights_still_sees_every_dataset_and_field(app, admin, plant):
+    """Экран прав: администратор выдаёт права на реестры и поля, которые сам не читает."""
+    price = plant["fields"]["price"]
+    secret = plant["datasets"][1]["id"]
+    rights = [
+        {"scope": "section", "target": "admin", "action": "use"},
+        _view(plant["datasets"][0]["id"]),
+        {"scope": "field", "target": price["id"], "action": "hidden"},
+    ]
+    role = _role(admin, "Только администрирование", rights)
+    _, client = _user(app, admin, "kadry", role["id"])
+    listed = {item["id"] for item in client.get("/datasets").json()["items"]}
+    assert secret in listed
+    fields = [item["key"] for item in client.get(f"/types/{plant['type']['id']}").json()["fields"]]
+    assert "price" in fields
+    assert client.post(f"/datasets/{secret}/records/query", {}).status == 403  # записи закрыты

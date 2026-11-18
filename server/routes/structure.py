@@ -41,7 +41,7 @@ def create_type(call: Call) -> dict[str, Any]:
 def get_type(call: Call) -> dict[str, Any]:
     """Тип с полями в порядке показа; скрытые от роли поля не показываются."""
     found = structure.get_type(call.conn, call.params["id"])
-    if not call.access.has("structure"):
+    if not _manages(call):
         hidden = call.access.hidden
         found["fields"] = [item for item in found["fields"] if item["id"] not in hidden]
     return found
@@ -98,11 +98,22 @@ def restore_field(call: Call) -> dict[str, Any]:
 
 
 def list_datasets(call: Call) -> dict[str, Any]:
-    """Реестры, которые роль может видеть, — по площадке или типу."""
+    """Реестры, которые роль может видеть, — по площадке или типу.
+
+    Администратор и роль со структурой видят все реестры: им нужно выдавать
+    права и вести структуру реестров, записи которых сами они не читают.
+    """
     found = structure.list_datasets(
         call.conn, site_id=call.query.get("site_id"), type_id=call.query.get("type_id")
     )
+    if _manages(call):
+        return {"items": found}
     return {"items": [item for item in found if call.access.can(item["id"], "view")]}
+
+
+def _manages(call: Call) -> bool:
+    """Описание структуры целиком видно тем, кто её ведёт или раздаёт права."""
+    return call.access.has("structure") or call.access.has("admin")
 
 
 def create_dataset(call: Call) -> dict[str, Any]:

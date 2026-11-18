@@ -109,12 +109,17 @@ class Client:
 
         async def call() -> None:
             sent = False
+            done = anyio.Event()
 
             async def receive() -> dict[str, Any]:
+                # Как настоящий сервер: после тела запроса соединение живо, пока
+                # ответ не отправлен целиком. Ранний http.disconnect отменяет
+                # потоковую передачу файла (запрос 004).
                 nonlocal sent
                 if not sent:
                     sent = True
                     return {"type": "http.request", "body": payload, "more_body": False}
+                await done.wait()
                 return {"type": "http.disconnect"}
 
             async def send(message: dict[str, Any]) -> None:
@@ -128,12 +133,16 @@ class Client:
                             result["cookies"][cookie] = token.strip('"')
                 elif message["type"] == "http.response.body":
                     result["body"] += message.get("body", b"")
+                    if not message.get("more_body", False):
+                        done.set()
 
             try:
                 await self.app(scope, receive, send)
             except Exception:  # Starlette пробрасывает ошибку дальше после ответа 500
                 if not result["status"]:
                     raise
+            finally:
+                done.set()
 
         anyio.run(call)
         if "localai_session" in result["cookies"]:
