@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 from engine import kks, text
@@ -39,12 +40,22 @@ def set_rule(tx: Tx, signal_pattern: Any) -> dict[str, Any]:
 
 def split(conn: sqlite3.Connection, code: Any) -> tuple[str, str | None]:
     """``(ККС объекта, признак сигнала или None)`` в нормализованном виде кода."""
-    norm = text.norm_kks(str(code))[1]
-    found = _compile(get_rule(conn)["signal_pattern"]).match(norm)
-    if found is None:
-        return norm, None
-    cut = len(found.group("object"))
-    return norm[:cut].rstrip(" _-"), norm[cut:].lstrip(" _-")
+    return splitter(conn)(code)
+
+
+def splitter(conn: sqlite3.Connection) -> Callable[[Any], tuple[str, str | None]]:
+    """Разбор по правилу, прочитанному один раз: для переноса тысяч строк."""
+    pattern = _compile(get_rule(conn)["signal_pattern"])
+
+    def split_one(code: Any) -> tuple[str, str | None]:
+        norm = text.norm_kks(str(code))[1]
+        found = pattern.match(norm)
+        if found is None:
+            return norm, None
+        cut = len(found.group("object"))
+        return norm[:cut].rstrip(" _-"), norm[cut:].lstrip(" _-")
+
+    return split_one
 
 
 def resolve(conn: sqlite3.Connection, site_id: str, code: str) -> dict[str, Any] | None:

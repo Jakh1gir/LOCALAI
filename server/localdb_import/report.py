@@ -33,6 +33,17 @@ class Issues:
         return sorted(self._items.values(), key=lambda item: (order[item["level"]], item["code"]))
 
 
+def _magnet_line(item: dict[str, Any]) -> str:
+    if not item["applied"]:
+        return f"Магнит ККС — реестр «{item['dataset']}»: раскладка предложена, не применена"
+    cables = item["cables"]
+    return (
+        f"Магнит ККС — реестр «{item['dataset']}»: разложено записей"
+        f" {item.get('records_laid_out', 0)}; кабели: новых {cables['created']},"
+        f" обновлено {cables['updated']}, без изменений {cables['unchanged']}"
+    )
+
+
 def as_text(report: dict[str, Any]) -> str:
     """Отчёт для чтения в терминале."""
     lines: list[str] = []
@@ -88,6 +99,20 @@ def as_text(report: dict[str, Any]) -> str:
                 f" групп похожих кодов {len(catalog['similar'])}"
             ),
         ]
+    for item in report.get("magnet", []):
+        lines += ["", _magnet_line(item)]
+        layout, plan = item["layout"], item["plan"]
+        places = ", ".join(layout["places"]) or "—"
+        lines.append(
+            f"  столбцы: ККС «{layout['kks'] or '—'}», код сигнала «{layout['signal']}»,"
+            f" кабель «{layout['cable'] or '—'}», места: {places}"
+        )
+        lines.append(
+            f"  сигналов {plan['signals']}, резервов {plan['spares']}, аппаратов {plan['devices']}"
+            f" (из кода сигнала {plan['device_from_signal_code']}), кабелей {plan['cables']}"
+        )
+        for code, found in item["issues"].items():
+            lines.append(f"  расхождение {code}: {found['count']}")
     if report.get("audit") is not None:
         lines.append(f"Журнал: событий {report['audit']['events']}")
     checks = report.get("reconciliation", [])
