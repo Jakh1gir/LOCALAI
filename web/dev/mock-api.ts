@@ -1,7 +1,9 @@
 import type {
   Condition, CountQuery, RecordDoc, RecordQuery, RecordRow, Scalar, Sort,
 } from '../src/api/types.ts';
-import { choiceLabels, dataset, kksLabels, makeRows, mockHealth, refsFor, registryType, site } from './fixture.ts';
+import {
+  choiceLabels, dataset, kksLabels, makeRows, mockHealth, mockMe, refsFor, registryType, site,
+} from './fixture.ts';
 
 class MockError extends Error {
   readonly status: number;
@@ -191,6 +193,31 @@ type Receipt = { fingerprint: string; row: RecordRow; status: number };
 export function createMockApi() {
   const rows = new Map(makeRows().map((row) => [row.id, row]));
   const receipts = new Map<string, Receipt>();
+  // Заглушка начинает с выполненным входом, чтобы экраны открывались сразу.
+  // После выхода /auth/me отвечает 401, а вход принимает любой непустой пароль.
+  let signedIn = true;
+
+  async function auth(request: Request, action: string): Promise<Response> {
+    if (request.method === 'GET' && action === 'me') {
+      if (!signedIn) throw new MockError(401, 'auth_required', 'Нужно войти в систему');
+      return Response.json(mockMe);
+    }
+    if (request.method !== 'POST') throw new MockError(404, 'route_not_found', 'Маршрут не найден.');
+    if (action === 'login') {
+      const body = await readJson(request);
+      if (typeof body.login !== 'string' || !body.login || typeof body.password !== 'string' || !body.password) {
+        throw new MockError(401, 'login_failed', 'Неверный логин или пароль');
+      }
+      signedIn = true;
+      return Response.json(mockMe);
+    }
+    if (action === 'logout') {
+      signedIn = false;
+      return new Response(null, { status: 204 });
+    }
+    if (action === 'password') return Response.json(mockMe);
+    throw new MockError(404, 'route_not_found', 'Маршрут не найден.');
+  }
 
   async function change(request: Request, recordId?: string): Promise<Response> {
     const key = request.headers.get('Idempotency-Key');
@@ -232,6 +259,7 @@ export function createMockApi() {
     const { method } = request;
     if (url.pathname.startsWith('/api/v1/')) {
       if (method === 'GET' && url.pathname === '/api/v1/system/health') return Response.json(mockHealth);
+      if (group === 'auth' && id && !child) return auth(request, id);
       if (method === 'GET' && url.pathname === '/api/v1/sites') return Response.json({ items: [site] });
       if (group === 'types' && method === 'GET' && !child) {
         const { fields, ...summary } = registryType;

@@ -1,7 +1,7 @@
 import { text } from '../text.ts';
 import type { paths } from './contract.d.ts';
 import type {
-  CountQuery, Dataset, Health, Items, NamedEntity, RecordCreate, RecordDetail, RecordPage,
+  CountQuery, Dataset, Health, Items, Me, NamedEntity, RecordCreate, RecordDetail, RecordPage,
   RecordQuery, RecordRow, RecordType, RecordUpdate, RecordValues, TypeDetails,
 } from './types.ts';
 
@@ -30,6 +30,15 @@ export class ApiError extends Error {
     this.details = details;
   }
 }
+
+/** Коды, после которых нужен вход: сессии нет, она закрыта или истекла. */
+export const signedOutCodes = new Set(['auth_required', 'session_invalid', 'session_expired']);
+
+/**
+ * Сессия потеряна посреди работы. Слушатель — экран приложения: он
+ * показывает вход, не перезагружая страницу.
+ */
+export const sessionEvents = new EventTarget();
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -73,6 +82,10 @@ function newKey(): string {
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
 }
 
+function signedOut(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401 && signedOutCodes.has(error.code);
+}
+
 async function send(request: Request, fetchRequest: Transport): Promise<unknown> {
   // Тело и ключ уже зафиксированы. Обе попытки отправляют копию одного запроса.
   for (let attempt = 0; ; attempt += 1) {
@@ -88,7 +101,12 @@ async function send(request: Request, fetchRequest: Transport): Promise<unknown>
       if (attempt === 0) continue;
       throw new ApiError(0, 'network_error', text.networkError, undefined, undefined, { cause });
     }
-    return decode(response, raw);
+    try {
+      return decode(response, raw);
+    } catch (error) {
+      if (signedOut(error)) sessionEvents.dispatchEvent(new Event('signed-out'));
+      throw error;
+    }
   }
 }
 
@@ -113,9 +131,13 @@ export function createApiClient({
     const headers = new Headers({ Accept: 'application/json' });
     if (body !== undefined) headers.set('Content-Type', 'application/json');
     const reads = path === '/api/v1/datasets/{id}/records/query' || path === '/api/v1/datasets/{id}/records/count';
-    if (method !== 'GET' && !reads) headers.set('Idempotency-Key', newKey());
+    // Вход, выход и смена пароля не повторяются по ключу: сервер их не принимает.
+    const session = path.startsWith('/api/v1/auth/');
+    if (method !== 'GET' && !reads && !session) headers.set('Idempotency-Key', newKey());
+    // Сессия живёт в cookie HttpOnly: скрипт страницы её не видит и не хранит.
     const outgoing = new Request(url, {
       method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
+      credentials: 'same-origin',
     });
     return await send(outgoing, fetchRequest) as T;
   }
@@ -123,6 +145,16 @@ export function createApiClient({
   return {
     health: (signal?: AbortSignal) =>
       request<Health>('/api/v1/system/health', { signal }),
+    me: (signal?: AbortSignal) =>
+      request<Me>('/api/v1/auth/me', { signal }),
+    login: (login: string, password: string, signal?: AbortSignal) =>
+      request<Me>('/api/v1/auth/login', { method: 'POST', body: { login, password }, signal }),
+    logout: (signal?: AbortSignal) =>
+      request<undefined>('/api/v1/auth/logout', { method: 'POST', signal }),
+    changePassword: (currentPassword: string, newPassword: string, signal?: AbortSignal) =>
+      request<Me>('/api/v1/auth/password', {
+        method: 'POST', body: { current_password: currentPassword, new_password: newPassword }, signal,
+      }),
     listSites: (signal?: AbortSignal) =>
       request<Items<NamedEntity>>('/api/v1/sites', { signal }),
     listTypes: (signal?: AbortSignal) =>

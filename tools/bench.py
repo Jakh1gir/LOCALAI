@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import math
 import os
 import platform
+import secrets
 import shutil
 import socket
 import sqlite3
+import ssl
 import statistics
 import sys
 import threading
@@ -22,9 +25,19 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
-from engine import SYSTEM, Database, EngineError, kks, open_database, query, records, structure
+from engine import (
+    SYSTEM,
+    Database,
+    EngineError,
+    access,
+    kks,
+    open_database,
+    query,
+    records,
+    structure,
+)
 
 REGISTRY = "В эксплуатации"
 PAGE_SIZE = 50
@@ -107,12 +120,43 @@ class EngineAccess:
 
 
 class HttpAccess:
-    def __init__(self, url: str) -> None:
+    """Клиент API для замеров. Вход выполняется один раз до замеров: стойкий
+    хэш пароля занимает около 0,1 с и не должен попадать во время операций."""
+
+    def __init__(self, url: str, cafile: str | None = None) -> None:
         self.base = url.rstrip("/").removesuffix("/api/v1") + "/api/v1"
-        self.opener = build_opener(ProxyHandler({}))
+        handlers: list[Any] = [ProxyHandler({})]
+        if cafile:  # самоподписанный сертификат сервера (SEC-04)
+            handlers.append(HTTPSHandler(context=ssl.create_default_context(cafile=cafile)))
+        self.opener = build_opener(*handlers)
+        self.token = ""
+
+    def login(self, login: str, password: str) -> None:
+        body = json.dumps({"login": login, "password": password}, ensure_ascii=False).encode()
+        request = Request(
+            self.base + "/auth/login",
+            data=body,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        try:
+            with self.opener.open(request, timeout=30) as response:
+                cookies = response.headers.get_all("Set-Cookie") or []
+        except HTTPError as error:
+            raise BenchError(f"Вход «{login}» не выполнен: {_error_message(error)}") from error
+        except URLError as error:
+            raise BenchError(f"Сервер {self.base} недоступен. {error.reason}") from error
+        for cookie in cookies:
+            name, _, value = cookie.split(";", 1)[0].partition("=")
+            if name.strip() == "localai_session" and value:
+                self.token = value.strip('"')
+                return
+        raise BenchError("Сервер не выдал сессию после входа.")
 
     def request(self, method: str, path: str, body: dict | None = None, key: str = "") -> dict:
         headers = {"Accept": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
         data = None
         if body is not None:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -124,7 +168,9 @@ class HttpAccess:
             with self.opener.open(request, timeout=30) as response:
                 result = json.load(response)
         except HTTPError as error:
-            raise BenchError(f"{method} {path} вернул HTTP {error.code}.") from error
+            raise BenchError(
+                f"{method} {path} вернул HTTP {error.code}. {_error_message(error)}"
+            ) from error
         except URLError as error:
             raise BenchError(f"Сервер {self.base} недоступен. {error.reason}") from error
         except (UnicodeError, json.JSONDecodeError) as error:
@@ -148,6 +194,14 @@ class HttpAccess:
     def edit(self, record_id: str, version: int, values: dict) -> dict:
         body = {"expected_version": version, "values": values}
         return self.request("PATCH", f"/records/{record_id}", body, f"bench-{record_id}-{version}")
+
+
+def _error_message(error: HTTPError) -> str:
+    """Текст ошибки из ответа API, если он есть."""
+    try:
+        return str(json.load(error)["error"]["message"])
+    except (ValueError, KeyError, TypeError, UnicodeError):
+        return ""
 
 
 @contextmanager
@@ -249,7 +303,13 @@ def _serve_copy(path: Path) -> Iterator[HttpAccess]:
     with _open(path) as db, socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-        server = Server(Config(create_app(db), log_level="warning", access_log=False))
+        app = create_app(db)
+        # Во временной копии стенд заводит себе администратора со случайным
+        # паролем: в базе C-101 пользователей нет, а без входа API отвечает 401.
+        password = secrets.token_urlsafe(24)
+        with db.write(SYSTEM) as tx:
+            access.create_admin(tx, "bench", "Стенд замеров", password)
+        server = Server(Config(app, log_level="warning", access_log=False))
         worker = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
         worker.start()
         try:
@@ -258,7 +318,9 @@ def _serve_copy(path: Path) -> Iterator[HttpAccess]:
                 time.sleep(0.02)
             if not server.started:
                 raise BenchError("Локальный сервер временной копии не запустился.")
-            yield HttpAccess(f"http://127.0.0.1:{port}")
+            client = HttpAccess(f"http://127.0.0.1:{port}")
+            client.login("bench", password)
+            yield client
         finally:
             server.should_exit = True
             worker.join(timeout=10)
@@ -434,7 +496,16 @@ def _environment() -> dict:
     }
 
 
-def run_bench(source: Path, http: str | None, repeats: int) -> dict:
+@dataclass(frozen=True)
+class Credentials:
+    login: str
+    password: str
+    cafile: str | None = None
+
+
+def run_bench(
+    source: Path, http: str | None, repeats: int, credentials: Credentials | None = None
+) -> dict:
     with TemporaryDirectory(prefix="localai-bench-") as folder:
         snapshot = Path(folder) / "snapshot.sqlite3"
         _snapshot(source, snapshot, live=http is not None)
@@ -446,7 +517,10 @@ def run_bench(source: Path, http: str | None, repeats: int) -> dict:
             reader: EngineAccess | HttpAccess
             writer: EngineAccess | HttpAccess
             if http:
-                reader = HttpAccess(http)
+                if credentials is None:
+                    raise BenchError("Для --http нужны логин и пароль: --login и LOCALAI_PASSWORD.")
+                reader = HttpAccess(http, credentials.cafile)
+                reader.login(credentials.login, credentials.password)
                 _verify_http(reader, fixture)
                 writer = stack.enter_context(_serve_copy(write_copy))
             else:
@@ -530,6 +604,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--http", help="адрес API, например http://127.0.0.1:8730")
     parser.add_argument("--json", type=Path, default=Path("bench.json"), help="путь отчёта JSON")
     parser.add_argument("--repeats", type=int, default=MIN_REPEATS, help="число повторов")
+    parser.add_argument(
+        "--login",
+        default=os.environ.get("LOCALAI_LOGIN"),
+        help="логин для --http; по умолчанию LOCALAI_LOGIN. Пароль — LOCALAI_PASSWORD или ввод",
+    )
+    parser.add_argument("--cafile", help="сертификат сервера для HTTPS, если он самоподписанный")
     args = parser.parse_args(argv)
     source = args.db.resolve()
     if args.repeats < MIN_REPEATS:
@@ -546,6 +626,8 @@ def main(argv: list[str] | None = None) -> int:
             http_ok = False
         if not http_ok:
             parser.error("--http ожидает адрес сервера без параметров запроса")
+        if not args.login:
+            parser.error("для --http нужен --login (или LOCALAI_LOGIN): API требует входа")
     protected = [
         source,
         *(
@@ -564,8 +646,13 @@ def main(argv: list[str] | None = None) -> int:
         for path in protected
     ):
         parser.error("путь отчёта совпадает с файлом базы или её журналом")
+    credentials = None
+    if args.http is not None:
+        # Пароль не принимается параметром: он остался бы в истории команд.
+        password = os.environ.get("LOCALAI_PASSWORD") or getpass.getpass(f"Пароль «{args.login}»: ")
+        credentials = Credentials(args.login, password, args.cafile)
     try:
-        report = run_bench(source, args.http, args.repeats)
+        report = run_bench(source, args.http, args.repeats, credentials)
         _write_report(report_path, report)
     except (BenchError, EngineError, OSError, sqlite3.Error, ImportError) as error:
         print(f"Стенд не завершился. {error}", file=sys.stderr)
