@@ -5,6 +5,7 @@ import type {
   Permission, PermissionCatalog, Role, RoleCreate, RoleDetails, RoleUpdate,
   TemporaryUser, User, UserCreate, UserUpdate, RecordCreate, RecordDetail, RecordPage,
   RecordQuery, RecordRow, RecordType, RecordUpdate, RecordValues, TypeDetails, KksRules, KksResolution,
+  Backup, BackupEntry, BackupRestoreResult,
 } from './types.ts';
 
 type ApiPath = keyof paths;
@@ -88,7 +89,7 @@ function signedOut(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401 && signedOutCodes.has(error.code);
 }
 
-async function send(request: Request, fetchRequest: Transport): Promise<unknown> {
+async function send(request: Request, fetchRequest: Transport, retry = true): Promise<unknown> {
   // Тело и ключ уже зафиксированы. Обе попытки отправляют копию одного запроса.
   for (let attempt = 0; ; attempt += 1) {
     let response: Response;
@@ -100,7 +101,7 @@ async function send(request: Request, fetchRequest: Transport): Promise<unknown>
       if (request.signal.aborted || (cause instanceof DOMException && cause.name === 'AbortError')) {
         throw cause;
       }
-      if (attempt === 0) continue;
+      if (attempt === 0 && retry) continue;
       throw new ApiError(0, 'network_error', text.networkError, undefined, undefined, { cause });
     }
     try {
@@ -119,6 +120,7 @@ async function send(request: Request, fetchRequest: Transport): Promise<unknown>
 type Options = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   id?: string;
+  name?: string;
   query?: Record<string, string | undefined>;
   body?: unknown;
   signal?: AbortSignal;
@@ -129,8 +131,9 @@ export function createApiClient({
   fetchRequest = (request) => fetch(request),
 }: { baseUrl?: string; fetchRequest?: Transport } = {}) {
   async function request<T>(path: ApiPath, options: Options = {}): Promise<T> {
-    const { method = 'GET', id, query, body, signal } = options;
-    const url = new URL(id === undefined ? path : path.replace('{id}', encodeURIComponent(id)), baseUrl);
+    const { method = 'GET', id, name, query, body, signal } = options;
+    const target = id === undefined ? path : path.replace('{id}', encodeURIComponent(id));
+    const url = new URL(name === undefined ? target : target.replace('{name}', encodeURIComponent(name)), baseUrl);
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, value);
     }
@@ -139,13 +142,15 @@ export function createApiClient({
     const reads = path === '/api/v1/datasets/{id}/records/query' || path === '/api/v1/datasets/{id}/records/count';
     // Вход, выход и смена пароля не повторяются по ключу: сервер их не принимает.
     const session = path.startsWith('/api/v1/auth/');
-    if (method !== 'GET' && !reads && !session) headers.set('Idempotency-Key', newKey());
+    const backupWrite = method !== 'GET' && path.startsWith('/api/v1/backups');
+    if (method !== 'GET' && !reads && !session && !backupWrite) headers.set('Idempotency-Key', newKey());
     // Сессия живёт в cookie HttpOnly: скрипт страницы её не видит и не хранит.
     const outgoing = new Request(url, {
       method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
       credentials: 'same-origin',
     });
-    return await send(outgoing, fetchRequest) as T;
+    // Создание и восстановление копий сервер не повторяет по ключу.
+    return await send(outgoing, fetchRequest, !backupWrite) as T;
   }
 
   return {
@@ -188,6 +193,14 @@ export function createApiClient({
     resolveKks: (siteId: string, code: string, signal?: AbortSignal) => request<KksResolution>('/api/v1/sites/{id}/kks/resolve', {
       id: siteId, query: { code }, signal,
     }),
+    listBackups: (signal?: AbortSignal) => request<Items<BackupEntry>>('/api/v1/backups', { signal }),
+    createBackup: (password: string, label?: string) => request<Backup>('/api/v1/backups', {
+      method: 'POST', body: { password, label: label || null },
+    }),
+    restoreBackup: (name: string, password: string) => request<BackupRestoreResult>('/api/v1/backups/{name}/restore', {
+      method: 'POST', name, body: { password },
+    }),
+    backupDownloadUrl: (name: string) => new URL(`/api/v1/backups/${encodeURIComponent(name)}/file`, baseUrl).href,
     listSites: (signal?: AbortSignal) =>
       request<Items<NamedEntity>>('/api/v1/sites', { signal }),
     listTypes: (signal?: AbortSignal) =>

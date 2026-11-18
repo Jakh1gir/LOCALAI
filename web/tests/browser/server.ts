@@ -63,7 +63,7 @@ export async function startAccessServer(t: TestContext) {
   const config = await ready;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      if ((await fetch(`${config.url}/api/v1/system/health`)).ok) return config;
+      if ((await fetch(`${config.url}/api/v1/system/health`)).ok) return { ...config, folder };
     } catch {
       /* Сокет открыт до запуска ASGI. */
     }
