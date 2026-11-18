@@ -4,6 +4,7 @@
   import type { AllowedNetwork } from '../api/types.ts';
   import { text } from '../text.ts';
   import { problemText } from './model.ts';
+  import ConfirmAction from './ConfirmAction.svelte';
 
   const copy = text.access;
   let items = $state<AllowedNetwork[]>([]);
@@ -13,6 +14,7 @@
   let loading = $state(true);
   let problem = $state('');
   let problemAt = $state('list');
+  let pending = $state<AllowedNetwork | null>(null);
   const controller = new AbortController();
 
   function showProblem(error: unknown, target: string) {
@@ -66,6 +68,13 @@
       busy = false;
     }
   }
+
+  function confirmRemove() {
+    if (!pending) return;
+    const item = pending;
+    pending = null;
+    void remove(item);
+  }
 </script>
 
 <div class="access-toolbar"><h2>{copy.networks}</h2></div>
@@ -80,8 +89,12 @@
         >{#each items as item (item.id)}
           <tr
             ><th scope="row" class="mono">{item.network}</th><td>{item.note ?? '—'}</td><td>
-              <button type="button" onclick={() => remove(item)} disabled={busy}
-                >{copy.remove}</button
+              <button
+                type="button"
+                onclick={() => {
+                  pending = item;
+                }}
+                disabled={busy}>{copy.remove}</button
               >
               {#if problem && problemAt === item.id}<p class="form-error" role="alert">
                   {problem}
@@ -110,3 +123,15 @@
     <button class="primary" type="submit" disabled={busy}>{copy.addNetwork}</button>
   </form>
 </div>
+
+{#if pending}
+  <ConfirmAction
+    title={copy.confirmRemoveNetwork(pending.network)}
+    consequence={copy.removeNetworkConsequence}
+    action={copy.removeNetworkAction}
+    onConfirm={confirmRemove}
+    onCancel={() => {
+      pending = null;
+    }}
+  />
+{/if}

@@ -4,7 +4,7 @@ import type {
   AllowedNetwork, CountQuery, Dataset, Health, Items, Me, NamedEntity, NetworkCreate,
   Permission, PermissionCatalog, Role, RoleCreate, RoleDetails, RoleUpdate,
   TemporaryUser, User, UserCreate, UserUpdate, RecordCreate, RecordDetail, RecordPage,
-  RecordQuery, RecordRow, RecordType, RecordUpdate, RecordValues, TypeDetails,
+  RecordQuery, RecordRow, RecordType, RecordUpdate, RecordValues, TypeDetails, KksRules, KksResolution,
 } from './types.ts';
 
 type ApiPath = keyof paths;
@@ -181,6 +181,13 @@ export function createApiClient({
     listNetworks: (signal?: AbortSignal) => request<Items<AllowedNetwork>>('/api/v1/system/allowed-ips', { signal }),
     addNetwork: (body: NetworkCreate) => request<AllowedNetwork>('/api/v1/system/allowed-ips', { method: 'POST', body }),
     removeNetwork: (id: string) => request<undefined>('/api/v1/system/allowed-ips/{id}', { method: 'DELETE', id }),
+    getKksRules: (signal?: AbortSignal) => request<KksRules>('/api/v1/kks/rules', { signal }),
+    setKksRules: (signalPattern: string, signal?: AbortSignal) => request<KksRules>('/api/v1/kks/rules', {
+      method: 'PUT', body: { signal_pattern: signalPattern }, signal,
+    }),
+    resolveKks: (siteId: string, code: string, signal?: AbortSignal) => request<KksResolution>('/api/v1/sites/{id}/kks/resolve', {
+      id: siteId, query: { code }, signal,
+    }),
     listSites: (signal?: AbortSignal) =>
       request<Items<NamedEntity>>('/api/v1/sites', { signal }),
     listTypes: (signal?: AbortSignal) =>
