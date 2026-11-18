@@ -82,6 +82,21 @@ export type UserUpdate = Schemas['UserPatch'];
 export type RoleCreate = Schemas['RoleCreate'];
 export type RoleUpdate = Schemas['RolePatch'];
 export type NetworkCreate = Schemas['NetworkCreate'];
+export type Backup = {
+  name: string;
+  size: number;
+  created_at: string;
+  label: string | null;
+  schema_version: number;
+  database_id: string | null;
+  app_version: string | null;
+};
+export type BackupEntry = Backup | { name: string; size: number; error: string };
+export type BackupRestoreResult = {
+  restored: Backup;
+  protective_backup: Backup;
+  schema_version: number;
+};
 
 export type Scalar = string | number | boolean | null;
 export type RecordDoc = Record<string, Scalar | Scalar[]>;
