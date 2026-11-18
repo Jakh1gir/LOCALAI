@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from engine import EngineError, query, records, structure
+from engine import EngineError, batch, facets, query, records, structure
 from engine.errors import FORBIDDEN
 from server import schemas
 from server.api import Call, Endpoint
@@ -49,6 +49,30 @@ def count_records(call: Call) -> dict[str, Any]:
     dataset_id = call.params["id"]
     hidden = _hidden(call, dataset_id)
     return {"count": query.count_records(call.conn, dataset_id, request, hidden=hidden)}
+
+
+def value_counts(call: Call) -> dict[str, Any]:
+    """Значения поля и число записей с каждым — для фильтра столбца."""
+    request = call.body.model_dump(exclude_none=True)
+    field, limit = request.pop("field"), request.pop("limit")
+    dataset_id = call.params["id"]
+    return facets.value_counts(
+        call.conn, dataset_id, field, request, limit=limit, hidden=_hidden(call, dataset_id)
+    )
+
+
+def batch_update(call: Call) -> dict[str, Any]:
+    """Одни и те же значения в выбранных записях; всё или ничего."""
+    dataset_id = call.params["id"]
+    _check_editable(call, dataset_id, call.body.values)
+    items = [item.model_dump() for item in call.body.items]
+    return batch.update_many(call.tx, dataset_id, items, call.body.values)
+
+
+def batch_purge(call: Call) -> dict[str, Any]:
+    """Окончательно удалить записи из архива; всё или ничего."""
+    items = [item.model_dump() for item in call.body.items]
+    return batch.purge_many(call.tx, call.params["id"], items)
 
 
 def create_record(call: Call) -> dict[str, Any]:
@@ -153,6 +177,31 @@ ENDPOINTS = [
         "dataset.view",
         body=schemas.RecordCount,
         read_only=True,
+        **ON_DATASET,
+    ),
+    _e(
+        "POST",
+        "/datasets/{id}/records/values",
+        value_counts,
+        "dataset.view",
+        body=schemas.ValueCounts,
+        read_only=True,
+        **ON_DATASET,
+    ),
+    _e(
+        "POST",
+        "/datasets/{id}/records/batch-update",
+        batch_update,
+        "dataset.edit",
+        body=schemas.BatchUpdate,
+        **ON_DATASET,
+    ),
+    _e(
+        "POST",
+        "/datasets/{id}/records/purge",
+        batch_purge,
+        "dataset.purge",
+        body=schemas.BatchPurge,
         **ON_DATASET,
     ),
     _e(
