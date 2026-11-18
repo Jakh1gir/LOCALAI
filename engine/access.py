@@ -31,6 +31,8 @@ SECTIONS = {
     "chat": "Общий чат: читать",
     "chat_write": "Общий чат: писать",
     "chat_moderate": "Общий чат: скрывать чужие сообщения",
+    "documents": "Документы: загружать, заменять и привязывать",
+    "worker": "Фоновые задачи: выполнять (учётная запись процесса схем)",
 }
 DATASET_ACTIONS = {
     "view": "Видеть записи",
@@ -62,6 +64,8 @@ class Access:
     datasets: dict[str, frozenset[str]]
     hidden: frozenset[str]
     readonly: frozenset[str]
+    # Типы документов, которые роль видит; «*» — все (ROLE-03).
+    doc_types: frozenset[str] = frozenset()
 
     @property
     def actor(self) -> Actor:
@@ -73,6 +77,9 @@ class Access:
     def can(self, dataset_id: str, action: str) -> bool:
         granted = self.datasets.get(ALL, frozenset()) | self.datasets.get(dataset_id, frozenset())
         return action in granted
+
+    def sees_documents(self, type_id: str) -> bool:
+        return ALL in self.doc_types or type_id in self.doc_types
 
     def hidden_keys(self, schema: structure.TypeSchema) -> frozenset[str]:
         return frozenset(field.key for field in schema.fields if field.id in self.hidden)
@@ -94,6 +101,7 @@ class Access:
                     **{field_id: "hidden" for field_id in sorted(self.hidden)},
                     **{field_id: "readonly" for field_id in sorted(self.readonly - self.hidden)},
                 },
+                "doc_types": sorted(self.doc_types),
             },
         }
 
@@ -110,6 +118,7 @@ def load(conn: sqlite3.Connection, user_id: str) -> Access:
     datasets: dict[str, set[str]] = {}
     hidden: set[str] = set()
     readonly: set[str] = set()
+    doc_types: set[str] = set()
     for item in conn.execute(
         "SELECT scope, target, action FROM role_permissions WHERE role_id = ?", (row["role_id"],)
     ):
@@ -119,6 +128,8 @@ def load(conn: sqlite3.Connection, user_id: str) -> Access:
             datasets.setdefault(item["target"], set()).add(item["action"])
         elif item["scope"] == "field":
             (hidden if item["action"] == "hidden" else readonly).add(item["target"])
+        elif item["scope"] == "doc_type":
+            doc_types.add(item["target"])
     return Access(
         user_id=row["id"],
         login=row["login"],
@@ -130,6 +141,7 @@ def load(conn: sqlite3.Connection, user_id: str) -> Access:
         datasets={key: frozenset(value) for key, value in datasets.items()},
         hidden=frozenset(hidden),
         readonly=frozenset(readonly),
+        doc_types=frozenset(doc_types),
     )
 
 
@@ -489,9 +501,13 @@ def _check_permission(conn: sqlite3.Connection, item: Any, number: int) -> tuple
         if not conn.execute("SELECT 1 FROM fields WHERE id = ?", (target,)).fetchone():
             raise bad(f"поле {target} не найдено")
     elif scope == "doc_type":
-        # Типы документов появятся на этапе 4; до тех пор право выдаётся на все.
-        if action not in DOC_TYPE_ACTIONS or target != ALL:
-            raise bad("для документов пока доступно только право «видеть» на все типы")
+        if action not in DOC_TYPE_ACTIONS:
+            raise bad(f"действие «{action}» над типом документов не существует")
+        if (
+            target != ALL
+            and not conn.execute("SELECT 1 FROM document_types WHERE id = ?", (target,)).fetchone()
+        ):
+            raise bad(f"тип документов {target} не найден")
     else:
         raise bad(f"область «{scope}» не существует")
     return scope, target, action

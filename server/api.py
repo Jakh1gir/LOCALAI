@@ -86,6 +86,8 @@ class Call:
     backups: Path | None = None
     # Папка рабочих файлов мастера импорта: загруженные книги.
     imports: Path | None = None
+    # Хранилище файлов документов по SHA-256.
+    files: Any = None
     conn: Any = None  # соединение для чтения или транзакция записи (``tx``)
     session: Session | None = None
     # Ответ на вход и выход: новый токен для cookie или "" — стереть cookie.
@@ -252,10 +254,13 @@ def _wake(future: asyncio.Future[None]) -> None:
 class Server:
     """Связывает объявления маршрутов с базой и правами."""
 
-    def __init__(self, db: Database, backups: Path, imports: Path | None = None) -> None:
+    def __init__(
+        self, db: Database, backups: Path, imports: Path | None = None, files: Any = None
+    ) -> None:
         self.db = db
         self.backups = backups
         self.imports = imports or backups.parent / "imports"
+        self.files = files
         self.throttle = Throttle()
         self.changes = Changes()
         db.on_commit(self.changes.notify)
@@ -274,6 +279,7 @@ class Server:
                 db=self.db if endpoint.manual else None,
                 backups=self.backups if endpoint.manual else None,
                 imports=self.imports,
+                files=self.files,
             )
             key = request.headers.get("idempotency-key")
             token = _token(request)

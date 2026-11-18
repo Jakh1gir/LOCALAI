@@ -8,7 +8,10 @@
   полнотекстовому индексу записей; записи, где строка совпала с ключом
   (уникальным полем) записи, — первыми.
 
-Документы и заметки знаний добавятся на этапе 4 той же формой ответа.
+- **документы** — фрагменты прочитанных документов видимых типов: по одному
+  на страницу, с отрывком текста вокруг найденного.
+
+Заметки знаний добавятся вместе с API знаний той же формой ответа.
 
 Права (ROLE-03): реестр без права «видеть» не участвует. В реестре, где у
 роли есть скрытые поля, поиск идёт перебором видимых значений, а не по
@@ -22,7 +25,7 @@ import sqlite3
 import time
 from typing import Any
 
-from engine import fulltext, kks, kks_rules, links, query, structure, text
+from engine import documents, fulltext, kks, kks_rules, links, query, structure, text
 from engine.access import Access
 from engine.errors import EngineError
 
@@ -51,12 +54,13 @@ def search(
     sites = _sites(conn, site_id)
     found_kks = _kks(conn, sites, needle, limit)
     records, more = _records(conn, viewer, sites, needle, limit)
+    tokens = [token for token in text.fold(needle).split() if len(token) >= fulltext.MIN_TOKEN]
     return {
         "query": needle,
         "kks": found_kks,
         "records": records,
         "more": {"records": more},
-        "documents": [],
+        "documents": documents.search(conn, viewer, tokens, limit),
         "notes": [],
         "took_ms": round((time.perf_counter() - started) * 1000, 1),
     }

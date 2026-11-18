@@ -264,3 +264,32 @@ class ExportRequest(Body):
     headers: dict[str, str] | None = None
     group_by: str | None = None
     template: bool = True
+
+
+class DocumentLink(Body):
+    kind: Literal["record", "kks"]
+    id: str
+
+
+class MentionDecision(Body):
+    decision: Literal["confirm", "reject"]
+
+
+class JobClaim(Body):
+    reader: Literal["vision"] = "vision"
+    kinds: list[str] | None = None
+
+
+class TextPage(Body):
+    page: str | None = None
+    text: str
+    area: dict[str, Any] | None = None
+
+
+class JobComplete(Body):
+    pages: list[TextPage]
+
+
+class JobFail(Body):
+    error: str
+    retry: bool = True

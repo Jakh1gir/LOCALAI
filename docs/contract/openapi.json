@@ -204,6 +204,29 @@
         "title": "DatasetCreate",
         "type": "object"
       },
+      "DocumentLink": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "record",
+              "kks"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "DocumentLink",
+        "type": "object"
+      },
       "Error": {
         "properties": {
           "error": {
@@ -812,6 +835,70 @@
         "title": "ImportPlan",
         "type": "object"
       },
+      "JobClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kinds"
+          },
+          "reader": {
+            "const": "vision",
+            "default": "vision",
+            "title": "Reader",
+            "type": "string"
+          }
+        },
+        "title": "JobClaim",
+        "type": "object"
+      },
+      "JobComplete": {
+        "additionalProperties": false,
+        "properties": {
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/TextPage"
+            },
+            "title": "Pages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "title": "JobComplete",
+        "type": "object"
+      },
+      "JobFail": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "retry": {
+            "default": true,
+            "title": "Retry",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "JobFail",
+        "type": "object"
+      },
       "KksCreate": {
         "additionalProperties": false,
         "properties": {
@@ -912,6 +999,24 @@
           "password"
         ],
         "title": "Login",
+        "type": "object"
+      },
+      "MentionDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "confirm",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "MentionDecision",
         "type": "object"
       },
       "NameBody": {
@@ -1306,6 +1411,45 @@
           "to_version"
         ],
         "title": "RollbackBody",
+        "type": "object"
+      },
+      "TextPage": {
+        "additionalProperties": false,
+        "properties": {
+          "area": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Area"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Page"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "TextPage",
         "type": "object"
       },
       "TypeCreate": {
@@ -4746,6 +4890,1071 @@
         "x-permission": "section.structure"
       }
     },
+    "/api/v1/document-types": {
+      "get": {
+        "operationId": "documents_types",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Типы документов, которые роль видит.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "session"
+      }
+    },
+    "/api/v1/documents": {
+      "get": {
+        "operationId": "documents_listing",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "target_kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Документы, видимые роли; с target_kind и target_id — привязанные к записи или ККС.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "session"
+      },
+      "post": {
+        "operationId": "documents_upload",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "title",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Загрузить документ: тело — файл, имя — параметр name. Чтение ставится в очередь.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "section.documents"
+      }
+    },
+    "/api/v1/documents/{id}": {
+      "get": {
+        "operationId": "documents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Карточка документа: состояние чтения, файл, привязки.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "session"
+      }
+    },
+    "/api/v1/documents/{id}/archive": {
+      "post": {
+        "operationId": "documents_archive",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Убрать документ в архив: из поиска он исчезает.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "section.documents"
+      }
+    },
+    "/api/v1/documents/{id}/file": {
+      "get": {
+        "operationId": "documents_download",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Файл документа текущей версии.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "session"
+      },
+      "put": {
+        "operationId": "documents_replace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Заменить файл документа: новая версия, прежние фрагменты уходят из поиска.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "section.documents"
+      }
+    },
+    "/api/v1/documents/{id}/links": {
+      "post": {
+        "operationId": "documents_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Привязать документ к записи или объекту ККС.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "section.documents"
+      }
+    },
+    "/api/v1/documents/{id}/links/{kind}/{target}": {
+      "delete": {
+        "operationId": "documents_unlink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Снять привязку документа.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "section.documents"
+      }
+    },
+    "/api/v1/documents/{id}/mentions": {
+      "get": {
+        "operationId": "documents_mentions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Коды ККС, найденные в тексте: предложения связей и решения по ним.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "session"
+      }
+    },
+    "/api/v1/documents/{id}/mentions/{kks_id}": {
+      "post": {
+        "operationId": "documents_decide",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kks_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MentionDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Подтвердить (создать связь с ККС) или отклонить найденный код.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "section.documents"
+      }
+    },
+    "/api/v1/documents/{id}/text": {
+      "get": {
+        "operationId": "documents_text",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Прочитанный текст по фрагментам; page — одна страница.",
+        "tags": [
+          "Документы"
+        ],
+        "x-permission": "session"
+      }
+    },
     "/api/v1/events": {
       "get": {
         "operationId": "chat_changes",
@@ -6041,6 +7250,327 @@
           "Импорт Excel"
         ],
         "x-permission": "session"
+      }
+    },
+    "/api/v1/jobs": {
+      "get": {
+        "operationId": "documents_job_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Фоновые задачи: администратору и исполнителю.",
+        "tags": [
+          "Фоновые задачи"
+        ],
+        "x-permission": "session"
+      }
+    },
+    "/api/v1/jobs/claim": {
+      "post": {
+        "operationId": "documents_claim",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobClaim"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Взять задачу процесса схем: документ и адрес его файла.",
+        "tags": [
+          "Фоновые задачи"
+        ],
+        "x-permission": "section.worker"
+      }
+    },
+    "/api/v1/jobs/{id}/complete": {
+      "post": {
+        "operationId": "documents_complete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobComplete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Результат чтения: страницы текста. Сервер делит их на фрагменты и индексирует.",
+        "tags": [
+          "Фоновые задачи"
+        ],
+        "x-permission": "section.worker"
+      }
+    },
+    "/api/v1/jobs/{id}/fail": {
+      "post": {
+        "operationId": "documents_fail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobFail"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Неудача чтения: повтор, пока есть попытки, иначе ошибка у документа.",
+        "tags": [
+          "Фоновые задачи"
+        ],
+        "x-permission": "section.worker"
       }
     },
     "/api/v1/kks-aliases/{id}": {
@@ -9723,10 +11253,12 @@
     "section.chat": "Общий чат: читать",
     "section.chat_moderate": "Общий чат: скрывать чужие сообщения",
     "section.chat_write": "Общий чат: писать",
+    "section.documents": "Документы: загружать, заменять и привязывать",
     "section.kks": "Каталог ККС: коды, описания, псевдонимы",
     "section.structure": "Структура: площадки, типы, поля, реестры, справочники",
     "section.timesheet": "Табель",
     "section.tools": "Инженерные инструменты",
+    "section.worker": "Фоновые задачи: выполнять (учётная запись процесса схем)",
     "self": "Вошедший пользователь, в том числе обязанный сменить пароль",
     "session": "Вошедший пользователь"
   }
