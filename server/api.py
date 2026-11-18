@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
 import json
 import logging
 import threading
@@ -66,6 +68,8 @@ _STATUS = {
 }
 _WRITE_METHODS = ("POST", "PATCH", "PUT", "DELETE")
 MAX_BODY = 10 * 1024 * 1024
+MAX_WAIT = 25.0  # секунд держит ответ маршрут ожидания событий
+RECHECK = 1.0  # проверка базы без сигнала: запись из другого процесса (перенос, CLI)
 
 
 @dataclass
@@ -144,6 +148,9 @@ class Endpoint:
     # транзакции и не держит очередь записи. Повтора по ключу у него нет: его
     # результат — файл, а не строки в той же транзакции.
     manual: bool = False
+    # Ожидание событий (API-09): если ответ пуст, маршрут повторяется после
+    # каждой записи в базу, пока не появятся события или не выйдет ``wait``.
+    poll: bool = False
     writes: bool = field(init=False)
 
     def __post_init__(self) -> None:
@@ -197,6 +204,44 @@ class Throttle:
         return found
 
 
+class Changes:
+    """Будит ожидающих событий, когда в базу записана транзакция (API-09).
+
+    Запись идёт в потоках, ожидание — в цикле asyncio: сигнал передаётся через
+    ``call_soon_threadsafe``. Ожидающий не держит поток и соединение с базой.
+    """
+
+    def __init__(self) -> None:
+        self._waiters: set[tuple[asyncio.AbstractEventLoop, asyncio.Future[None]]] = set()
+        self._lock = threading.Lock()
+
+    def notify(self) -> None:
+        with self._lock:
+            waiters = list(self._waiters)
+        for loop, future in waiters:
+            loop.call_soon_threadsafe(_wake, future)
+
+    async def wait(self, timeout: float) -> bool:
+        """``True`` — была запись; ``False`` — вышло время."""
+        loop = asyncio.get_running_loop()
+        item = (loop, loop.create_future())
+        with self._lock:
+            self._waiters.add(item)
+        try:
+            await asyncio.wait_for(item[1], timeout)
+            return True
+        except TimeoutError:
+            return False
+        finally:
+            with self._lock:
+                self._waiters.discard(item)
+
+
+def _wake(future: asyncio.Future[None]) -> None:
+    if not future.done():
+        future.set_result(None)
+
+
 class Server:
     """Связывает объявления маршрутов с базой и правами."""
 
@@ -204,6 +249,8 @@ class Server:
         self.db = db
         self.backups = backups
         self.throttle = Throttle()
+        self.changes = Changes()
+        db.on_commit(self.changes.notify)
 
     def route(self, endpoint: Endpoint) -> Route:
         async def handle(request: Request) -> Response:
@@ -221,7 +268,10 @@ class Server:
             )
             key = request.headers.get("idempotency-key")
             token = _token(request)
-            result = await run_in_threadpool(self._run, endpoint, call, key, token)
+            if endpoint.poll:
+                result = await self._poll(endpoint, call, key, token)
+            else:
+                result = await run_in_threadpool(self._run, endpoint, call, key, token)
             if call.deferred is not None:
                 raise call.deferred
             if isinstance(result, Response):  # файл копии и подобное
@@ -240,6 +290,21 @@ class Server:
             methods=[endpoint.method],
             name=endpoint.handler.__name__,
         )
+
+    async def _poll(
+        self, endpoint: Endpoint, call: Call, key: str | None, token: str | None
+    ) -> Any:
+        """Маршрут ожидания: права проверяются заново на каждом шаге (ROLE-09)."""
+        wait = _wait(call.query.get("wait"))
+        deadline = time.monotonic() + wait
+        while True:
+            step = dataclasses.replace(call, query=dict(call.query))
+            result = await run_in_threadpool(self._run, endpoint, step, key, token)
+            left = deadline - time.monotonic()
+            if result.get("events") or left <= 0:
+                return result
+            call.query["after"] = str(result["cursor"])
+            await self.changes.wait(min(left, RECHECK))
 
     def _run(self, endpoint: Endpoint, call: Call, key: str | None, token: str | None) -> Any:
         """Сначала права, потом разбор запроса: без входа маршрут не раскрывает,
@@ -313,6 +378,20 @@ def _dataset_of(endpoint: Endpoint, call: Call, conn: Any) -> str:
     if row is None:
         raise not_found("record", call.params["id"])
     return row[0]
+
+
+def _wait(raw: str | None) -> float:
+    if raw in (None, ""):
+        return 0.0
+    try:
+        seconds = float(raw)
+    except ValueError:
+        seconds = -1.0
+    if not 0 <= seconds <= MAX_WAIT:
+        raise EngineError(
+            "request_invalid", f"Параметр «wait»: от 0 до {MAX_WAIT:.0f} секунд", field="wait"
+        )
+    return seconds
 
 
 def _forbidden(permission: str) -> EngineError:
