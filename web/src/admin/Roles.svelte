@@ -5,6 +5,7 @@
   import { text } from '../text.ts';
   import { problemText } from './model.ts';
   import Permissions from './Permissions.svelte';
+  import ConfirmAction from './ConfirmAction.svelte';
 
   let {
     onChanged,
@@ -25,6 +26,7 @@
   let busy = $state(false);
   let problem = $state('');
   let problemAt = $state('list');
+  let pending = $state<Role | null>(null);
 
   function changed(value: boolean) {
     dirty = value;
@@ -125,6 +127,19 @@
     }
   }
 
+  function requestToggle(role: Role) {
+    if (busy) return;
+    if (role.archived_at) void toggle(role);
+    else pending = role;
+  }
+
+  function confirmToggle() {
+    if (!pending) return;
+    const role = pending;
+    pending = null;
+    void toggle(role);
+  }
+
   async function saved(role: RoleDetails) {
     selected = role;
     await onChanged();
@@ -177,7 +192,7 @@
                 <button type="button" onclick={() => edit('new', role.id)} disabled={busy}
                   >{copy.copy}</button
                 >
-                <button type="button" onclick={() => toggle(role)} disabled={busy}
+                <button type="button" onclick={() => requestToggle(role)} disabled={busy}
                   >{role.archived_at ? copy.restore : copy.disable}</button
                 >
               </div>
@@ -230,4 +245,16 @@
         busy = value;
       }}
     />{/key}
+{/if}
+
+{#if pending}
+  <ConfirmAction
+    title={copy.confirmDisableRole(pending.name)}
+    consequence={copy.disableRoleConsequence(pending.users)}
+    action={copy.disableRoleAction}
+    onConfirm={confirmToggle}
+    onCancel={() => {
+      pending = null;
+    }}
+  />
 {/if}

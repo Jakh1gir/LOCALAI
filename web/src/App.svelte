@@ -6,6 +6,8 @@
   import Login from './Login.svelte';
   import PasswordChange from './PasswordChange.svelte';
   import Admin from './admin/Admin.svelte';
+  import Backups from './backups/Backups.svelte';
+  import { showTime } from './admin/model.ts';
   import { findSection, homePath, sections } from './routes.ts';
   import { gateForError, gateForMe, type Gate } from './session.ts';
   import { text } from './text.ts';
@@ -28,7 +30,10 @@
   let notice = $state('');
   let adminDirty = $state(false);
   let canAdmin = $derived(gate === 'ready' && me?.permissions.sections.includes('admin') === true);
-  let visibleSections = $derived(sections.filter((item) => item.path !== '/admin' || canAdmin));
+  let canBackups = $derived(gate === 'ready' && me?.permissions.sections.includes('backups') === true);
+  let visibleSections = $derived(sections.filter((item) =>
+    (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
+  ));
   let found = $derived(visibleSections.filter((item) =>
     item.title.toLocaleLowerCase('ru').includes(keywords.trim().toLocaleLowerCase('ru')),
   ));
@@ -81,6 +86,14 @@
     me = next;
     notice = '';
     gate = gateForMe(next);
+  }
+
+  function restored(createdAt: string) {
+    sessionLoad?.abort();
+    me = null;
+    adminDirty = false;
+    notice = text.backups.restoredNotice(showTime(createdAt));
+    gate = 'login';
   }
 
   async function signOut() {
@@ -225,6 +238,9 @@
       <h1 id="page-title" bind:this={heading} tabindex="-1">{title}</h1>
       {#if current?.path === '/admin'}
         {#if canAdmin && me}<Admin {me} onChanged={loadSession} onDirty={(value) => { adminDirty = value; }} />
+        {:else}<p role="status">{text.accessDenied}</p>{/if}
+      {:else if current?.path === '/backups'}
+        {#if canBackups}<Backups onRestored={restored} />
         {:else}<p role="status">{text.accessDenied}</p>{/if}
       {:else}
       <div class="empty">
