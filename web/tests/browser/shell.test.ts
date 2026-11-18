@@ -6,16 +6,20 @@ import type { Browser } from 'playwright-core';
 import { createServer, preview } from 'vite';
 import { createApiClient } from '../../src/api/client.ts';
 import { text } from '../../src/text.ts';
+import { startAccessServer } from './server.ts';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const host = '127.0.0.1';
 const timeout = { timeout: 30_000 };
 
-async function openPage(t: TestContext, mode: 'development' | 'server' | 'static') {
+async function openPage(t: TestContext, mode: 'development' | 'server' | 'static', apiUrl?: string) {
   const options = { root, logLevel: 'error' as const };
   const web = mode === 'static'
     ? await preview({ ...options, preview: { host, port: 0, strictPort: true } })
-    : await createServer({ ...options, mode, server: { host, port: 0, strictPort: true } });
+    : await createServer({ ...options, mode, server: {
+      host, port: 0, strictPort: true,
+      ...(apiUrl ? { proxy: { '/api/v1': apiUrl } } : {}),
+    } });
   let browser: Browser | undefined;
   t.after(async () => {
     await browser?.close();
@@ -129,23 +133,23 @@ const serverLogin = process.env.LOCALAI_LOGIN;
 const serverPassword = process.env.LOCALAI_PASSWORD;
 
 test('оболочка входит в LOCALAI и получает ответ через прокси Vite', {
-  ...timeout,
-  skip: process.env.LOCALAI_API_URL && serverLogin && serverPassword
-    ? false
-    : 'Укажите LOCALAI_API_URL, LOCALAI_LOGIN и LOCALAI_PASSWORD для запущенного LOCALAI.',
+  timeout: 90_000,
 }, async (t) => {
-  const { page, origin } = await openPage(t, 'server');
+  const config = process.env.LOCALAI_API_URL && serverLogin && serverPassword
+    ? { url: process.env.LOCALAI_API_URL, login: serverLogin, password: serverPassword }
+    : await startAccessServer(t);
+  const { page, origin } = await openPage(t, 'server', config.url);
   await page.goto(`${origin}/registries`);
   await page.getByRole('heading', { name: text.loginTitle, level: 1 }).waitFor();
-  await page.getByLabel(text.loginField).fill(serverLogin!);
-  await page.getByLabel(text.passwordField).fill(serverPassword!);
+  await page.getByLabel(text.loginField).fill(config.login);
+  await page.getByLabel(text.passwordField).fill(config.password);
   await page.getByRole('button', { name: text.signIn }).click();
   await page.getByRole('heading', { name: text.registry, level: 1 }).waitFor();
   await page.getByRole('status').filter({ hasText: text.serverReady }).waitFor();
-  const api = withToken(origin, await signIn(origin, serverLogin!, serverPassword!));
+  const api = withToken(origin, await signIn(origin, config.login, config.password));
   const direct = withToken(
-    process.env.LOCALAI_API_URL!,
-    await signIn(process.env.LOCALAI_API_URL!, serverLogin!, serverPassword!),
+    config.url,
+    await signIn(config.url, config.login, config.password),
   );
   assert.deepEqual(await api.health(), await direct.health());
   assert.deepEqual(await api.listDatasets(), await direct.listDatasets());

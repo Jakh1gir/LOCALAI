@@ -15,9 +15,9 @@
   let title = $derived(current?.title ?? text.notFound);
   let connection = $state<'pending' | 'ready' | 'error'>('pending');
   let connectionDetail = $state('');
-  let heading: HTMLHeadingElement;
-  let dialog: HTMLDialogElement;
-  let searchInput: HTMLInputElement;
+  let heading = $state<HTMLHeadingElement>();
+  let dialog = $state<HTMLDialogElement>();
+  let searchInput = $state<HTMLInputElement>();
   let keywords = $state('');
   let load: AbortController | undefined;
   let gate = $state<Gate>('checking');
@@ -98,7 +98,7 @@
     dialog?.close();
     if (location.pathname !== path) history.pushState(null, '', path);
     pathname = location.pathname;
-    void tick().then(() => heading.focus());
+    void tick().then(() => heading?.focus());
   }
 
   function follow(event: MouseEvent, path: string) {
@@ -110,7 +110,7 @@
   function openSearch() {
     if (!dialog || dialog.open) return; // на экране входа поиска нет
     dialog.showModal();
-    searchInput.focus();
+    searchInput?.focus();
   }
 
   function keyboard(event: KeyboardEvent) {
@@ -204,7 +204,7 @@
 <dialog bind:this={dialog} aria-labelledby="search-title" onclose={() => { keywords = ''; }}>
   <div class="dialog-head">
     <h2 id="search-title">{text.search}</h2>
-    <button class="icon-button" type="button" onclick={() => dialog.close()} aria-label={text.close}>
+    <button class="icon-button" type="button" onclick={() => dialog?.close()} aria-label={text.close}>
       <Icon name="close" />
     </button>
   </div>
