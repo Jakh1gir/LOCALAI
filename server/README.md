@@ -21,5 +21,7 @@ python -m server --db localai.sqlite3
 | `openapi.py` | Машинное описание API из кода: `python -m server.openapi` |
 | `admin.py` | Учётные записи из командной строки: первый администратор, сброс забытого пароля |
 | `localdb_import/` | Перенос базы Local_DB |
+| `localdb_export/` | Перенос выгрузки Local_DB в Excel с магнитом ККС: `python -m server.localdb_export выгрузка.xlsx --target localai.sqlite3` — пробный прогон на копии; `--apply` применяет одной транзакцией со страховочной копией; `--report отчёт.json` — полный отчёт |
+| `xlsx.py` | Чтение листа Excel с заполнением объединённых ячеек |
 
 Контракт: [docs/contract/api-v1.md](../docs/contract/api-v1.md). Задачи: [docs/STATE.md](../docs/STATE.md).
