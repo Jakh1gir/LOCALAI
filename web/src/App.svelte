@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { api } from './api/client.ts';
+  import { api, sessionEvents } from './api/client.ts';
+  import type { Me } from './api/types.ts';
   import Icon from './Icon.svelte';
+  import Login from './Login.svelte';
+  import PasswordChange from './PasswordChange.svelte';
   import { findSection, homePath, sections } from './routes.ts';
+  import { gateForError, gateForMe, type Gate } from './session.ts';
   import { text } from './text.ts';
 
   const mockMode = import.meta.env.DEV && import.meta.env.MODE === 'development';
@@ -16,6 +20,10 @@
   let searchInput: HTMLInputElement;
   let keywords = $state('');
   let load: AbortController | undefined;
+  let gate = $state<Gate>('checking');
+  let me = $state<Me | null>(null);
+  let setupRequired = $state(false);
+  let notice = $state('');
   let found = $derived(sections.filter((item) =>
     item.title.toLocaleLowerCase('ru').includes(keywords.trim().toLocaleLowerCase('ru')),
   ));
@@ -33,7 +41,10 @@
     try {
       const result = await api.health(request.signal);
       if (result.status !== 'ok') throw new Error(text.invalidResponse);
-      if (!request.signal.aborted) connection = 'ready';
+      if (!request.signal.aborted) {
+        connection = 'ready';
+        setupRequired = result.setup_required === true;
+      }
     } catch (error) {
       if (request.signal.aborted) return;
       connection = 'error';
@@ -41,9 +52,46 @@
     }
   }
 
+  async function loadSession() {
+    try {
+      signedIn(await api.me());
+    } catch (error) {
+      me = null;
+      gate = gateForError(error);
+    }
+  }
+
+  function signedIn(next: Me) {
+    me = next;
+    notice = '';
+    gate = gateForMe(next);
+  }
+
+  async function signOut() {
+    try {
+      await api.logout();
+    } catch {
+      // Сессия могла уже закрыться на сервере; экран входа нужен в любом случае.
+    }
+    me = null;
+    gate = 'login';
+  }
+
   onMount(() => {
     void checkConnection();
-    return () => load?.abort();
+    void loadSession();
+    // Сессия истекла или закрыта администратором посреди работы.
+    const lost = () => {
+      if (gate !== 'ready') return;
+      me = null;
+      notice = text.sessionLost;
+      gate = 'login';
+    };
+    sessionEvents.addEventListener('signed-out', lost);
+    return () => {
+      load?.abort();
+      sessionEvents.removeEventListener('signed-out', lost);
+    };
   });
 
   function navigate(path: string) {
@@ -60,7 +108,7 @@
   }
 
   function openSearch() {
-    if (dialog.open) return;
+    if (!dialog || dialog.open) return; // на экране входа поиска нет
     dialog.showModal();
     searchInput.focus();
   }
@@ -75,6 +123,13 @@
 
 <svelte:window onkeydown={keyboard} onpopstate={() => { pathname = location.pathname; }} />
 
+{#if gate === 'checking'}
+<p class="auth-checking" role="status">{text.checking}</p>
+{:else if gate === 'login'}
+<Login {setupRequired} {notice} onSignedIn={signedIn} />
+{:else if gate === 'change-password' && me}
+<PasswordChange {me} onChanged={signedIn} />
+{:else}
 <a class="skip-link" href="#content">{text.skipToContent}</a>
 <div class="app">
   <aside class="sidebar">
@@ -122,7 +177,12 @@
         </button>
         <div class="reserved">
           <span class="task-slot" title={text.tasks}><Icon name="tasks" size={19} /><span>{text.tasks}</span></span>
-          <span class="profile-slot" title={text.profile}><Icon name="profile" size={19} /><span>{text.profile}</span></span>
+          {#if me}
+            <span class="profile-slot" title={me.role.name}><Icon name="profile" size={19} /><span>{me.user.name}</span></span>
+            <button class="sign-out" type="button" onclick={signOut}>{text.signOut}</button>
+          {:else}
+            <span class="profile-slot" title={text.profile}><Icon name="profile" size={19} /><span>{text.profile}</span></span>
+          {/if}
         </div>
       </div>
     </header>
@@ -165,3 +225,4 @@
     <p class="no-results" role="status">{text.noSections}</p>
   {/if}
 </dialog>
+{/if}

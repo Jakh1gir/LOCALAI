@@ -101,16 +101,55 @@ test('статическая сборка открывает неизвестн�
   assert.equal(fonts, 2);
 });
 
-test('оболочка и клиент получают ответ LOCALAI через прокси Vite', {
+/** Токен сессии для клиента из Node: браузер хранит его в cookie сам. */
+async function signIn(baseUrl: string, login: string, password: string): Promise<string> {
+  const response = await fetch(new URL('/api/v1/auth/login', baseUrl), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ login, password }),
+  });
+  assert.equal(response.status, 200, 'Вход в LOCALAI не выполнен.');
+  const cookie = response.headers.getSetCookie().find((item) => item.startsWith('localai_session='));
+  assert.ok(cookie, 'Сервер не выдал cookie сессии.');
+  return cookie.split(';', 1)[0].slice('localai_session='.length);
+}
+
+function withToken(baseUrl: string, token: string) {
+  return createApiClient({
+    baseUrl,
+    fetchRequest: (request) => {
+      const headers = new Headers(request.headers);
+      headers.set('Authorization', `Bearer ${token}`);
+      return fetch(new Request(request, { headers }));
+    },
+  });
+}
+
+const serverLogin = process.env.LOCALAI_LOGIN;
+const serverPassword = process.env.LOCALAI_PASSWORD;
+
+test('оболочка входит в LOCALAI и получает ответ через прокси Vite', {
   ...timeout,
-  skip: process.env.LOCALAI_API_URL ? false : 'Укажите LOCALAI_API_URL для запущенного LOCALAI.',
+  skip: process.env.LOCALAI_API_URL && serverLogin && serverPassword
+    ? false
+    : 'Укажите LOCALAI_API_URL, LOCALAI_LOGIN и LOCALAI_PASSWORD для запущенного LOCALAI.',
 }, async (t) => {
   const { page, origin } = await openPage(t, 'server');
   await page.goto(`${origin}/registries`);
+  await page.getByRole('heading', { name: text.loginTitle, level: 1 }).waitFor();
+  await page.getByLabel(text.loginField).fill(serverLogin!);
+  await page.getByLabel(text.passwordField).fill(serverPassword!);
+  await page.getByRole('button', { name: text.signIn }).click();
   await page.getByRole('heading', { name: text.registry, level: 1 }).waitFor();
   await page.getByRole('status').filter({ hasText: text.serverReady }).waitFor();
-  const api = createApiClient({ baseUrl: origin });
-  const direct = createApiClient({ baseUrl: process.env.LOCALAI_API_URL });
+  const api = withToken(origin, await signIn(origin, serverLogin!, serverPassword!));
+  const direct = withToken(
+    process.env.LOCALAI_API_URL!,
+    await signIn(process.env.LOCALAI_API_URL!, serverLogin!, serverPassword!),
+  );
   assert.deepEqual(await api.health(), await direct.health());
   assert.deepEqual(await api.listDatasets(), await direct.listDatasets());
+
+  await page.getByRole('button', { name: text.signOut }).click();
+  await page.getByRole('heading', { name: text.loginTitle, level: 1 }).waitFor();
 });

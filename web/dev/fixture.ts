@@ -1,5 +1,5 @@
 import type {
-  Dataset, Health, NamedEntity, RecordRow, Refs, TypeDetails, TypeField,
+  Dataset, Health, Me, NamedEntity, RecordRow, Refs, TypeDetails, TypeField,
 } from '../src/api/types.ts';
 
 const when = '2026-01-01T00:00:00.000Z';
@@ -9,7 +9,18 @@ const base = (number: number, name: string) => ({
 });
 
 export const mockHealth: Health = {
-  status: 'ok', version: '0.1.0', schema_version: 1, database_id: id(4),
+  status: 'ok', version: '0.1.0', schema_version: 5, database_id: id(4), setup_required: false,
+};
+/** Демонстрационный администратор заглушки: в режиме разработки вход уже выполнен. */
+export const mockMe: Me = {
+  user: { id: id(30), login: 'demo', name: 'Демонстрационный администратор' },
+  role: { id: id(31), name: 'Администратор' },
+  must_change_password: false,
+  permissions: {
+    sections: ['admin', 'ai', 'backups', 'kks', 'structure', 'timesheet', 'tools'],
+    datasets: { '*': ['archive', 'create', 'edit', 'export', 'import', 'view'] },
+    fields: {},
+  },
 };
 export const site: NamedEntity = base(1, 'ТЭЦ-1');
 export const dataset: Dataset = { ...base(3, 'В эксплуатации'), site_id: site.id, type_id: id(2) };

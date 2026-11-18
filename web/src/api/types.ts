@@ -8,6 +8,21 @@ export type Health = {
   version: string;
   schema_version: number;
   database_id: string;
+  /** В базе ещё нет пользователей: администратора создаёт установщик. */
+  setup_required?: boolean;
+};
+export type Permissions = {
+  sections: string[];
+  datasets: Record<string, string[]>;
+  fields: Record<string, 'hidden' | 'readonly'>;
+};
+/** Ответ входа, смены пароля и GET /auth/me. */
+export type Me = {
+  user: { id: string; login: string; name: string };
+  role: { id: string; name: string };
+  must_change_password: boolean;
+  permissions: Permissions;
+  session_expires_at?: string;
 };
 export type NamedEntity = {
   id: string;
