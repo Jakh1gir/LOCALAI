@@ -82,6 +82,27 @@ class RecordCount(Body):
     kks: str | None = None
 
 
+class ValueCounts(RecordCount):
+    """Число записей по значениям поля при тех же условиях, что у подсчёта."""
+
+    field: str
+    limit: StrictInt = 50
+
+
+class BatchItem(Body):
+    id: str
+    expected_version: StrictInt
+
+
+class BatchUpdate(Body):
+    items: list[BatchItem]
+    values: dict[str, Any]
+
+
+class BatchPurge(Body):
+    items: list[BatchItem]
+
+
 class RecordCreate(Body):
     values: dict[str, Any]
 
