@@ -219,3 +219,38 @@ class ChatHide(Body):
 
 class ChatRead(Body):
     seq: StrictInt
+
+
+class ImportNewField(Body):
+    column: str
+    name: str | None = None
+    kind: Literal["text", "integer", "number", "date", "boolean", "kks"] = "text"
+    unique: bool = False
+
+
+class ImportNewType(Body):
+    type_name: str
+    dataset_name: str
+    site_id: str
+    fields: list[ImportNewField]
+
+
+class ImportPlan(Body):
+    sheet: str
+    header_row: StrictInt = 1
+    mode: Literal["records", "new_type", "magnet"]
+    dataset_id: str | None = None
+    mapping: dict[str, str] = {}
+    key: str | None = None
+    new_type: ImportNewType | None = None
+    site_id: str | None = None
+    name: str | None = None
+    layout: dict[str, Any] | None = None
+
+
+class ImportDecision(Body):
+    decision: Literal["skip", "apply"]
+
+
+class ImportApply(Body):
+    save_profile: str | None = None
