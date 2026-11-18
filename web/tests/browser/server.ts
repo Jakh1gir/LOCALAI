@@ -6,6 +6,9 @@ import { createInterface } from 'node:readline';
 import type { TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
+import assert from 'node:assert/strict';
+import { chromium, type Browser, type Page } from 'playwright-core';
+import { preview } from 'vite';
 
 export async function startAccessServer(t: TestContext) {
   const folder = await mkdtemp(join(tmpdir(), 'localai-access-'));
@@ -67,4 +70,38 @@ export async function startAccessServer(t: TestContext) {
     await setTimeout(50);
   }
   throw new Error(`Сервер не ответил. ${errors}`);
+}
+
+export async function openAccessPage(t: TestContext) {
+  const config = await startAccessServer(t);
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const web = await preview({
+    root,
+    logLevel: 'error',
+    preview: { host: '127.0.0.1', port: 0, strictPort: true, proxy: { '/api/v1': config.url } },
+  });
+  let browser: Browser | undefined;
+  t.after(async () => {
+    await browser?.close();
+    await web.close();
+  });
+  browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE });
+  const address = web.httpServer.address();
+  assert.ok(address && typeof address !== 'string');
+  const origin = `http://127.0.0.1:${address.port}`;
+  const context = await browser.newContext({
+    baseURL: origin,
+    viewport: { width: 1600, height: 1000 },
+    permissions: ['clipboard-read', 'clipboard-write'],
+  });
+  const page = await context.newPage();
+  return { page, browser, origin, config };
+}
+
+export async function confirmAccessAction(page: Page, action: string) {
+  const dialog = page.getByRole('dialog').filter({
+    has: page.getByRole('button', { name: action, exact: true }),
+  });
+  await dialog.getByRole('button', { name: action, exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
 }

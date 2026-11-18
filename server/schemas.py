@@ -202,3 +202,20 @@ class NetworkCreate(Body):
 
 class KksRules(Body):
     signal_pattern: str
+
+
+class ChatPost(Body):
+    text: str
+
+
+class ChatEdit(Body):
+    text: str
+    version: StrictInt
+
+
+class ChatHide(Body):
+    reason: str | None = None
+
+
+class ChatRead(Body):
+    seq: StrictInt

@@ -52,6 +52,16 @@
 .access .form-error { color: var(--error); margin: var(--space-2) 0 0; overflow-wrap: anywhere; }
 .access .muted { color: var(--muted); }
 .access .mono { font-family: var(--font-code); }
+.confirm-dialog { max-width: 540px; }
+.confirm-consequence { margin-block: var(--space-5); padding: var(--space-4); color: var(--warn); background: var(--warn-surface); border: 1px solid var(--warn-border); border-radius: var(--radius-sm); }
+.rules-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rule-pattern { padding: var(--space-3); background: var(--surface-subtle); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.rule-form { display: grid; gap: var(--space-4); }
+.rule-form button { justify-self: start; }
+.rule-example { padding: var(--space-4); background: var(--surface-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.rule-result { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin-bottom: 0; }
+.rule-result dt { color: var(--muted); }
+.rule-result dd { margin: 0; overflow-wrap: anywhere; }
 .secret-dialog p { margin: var(--space-4) 0; }
 .secret-dialog input { width: 100%; }
 .secret-dialog .form-actions { margin-top: var(--space-5); }
@@ -70,6 +80,7 @@
 .permission-review li { margin-bottom: var(--space-1); }
 @media (max-width: 1120px) { .access-columns.with-editor { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) {
+  .rules-columns { grid-template-columns: minmax(0, 1fr); }
   .access-toolbar { align-items: start; flex-direction: column; }
   .add-dataset { align-items: stretch; flex-direction: column; }
   .matrix-panel { padding: var(--space-3); }

@@ -18,6 +18,7 @@ import sqlite3
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from engine import EngineError, open_database, snapshot
 from server.localdb_import.importer import Decisions, run
@@ -38,12 +39,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--site-name", help="площадка LOCALAI, на которую переносить")
     parser.add_argument("--site-id", help="ID существующей площадки LOCALAI")
     parser.add_argument("--no-audit", action="store_true", help="не переносить журнал действий")
+    parser.add_argument(
+        "--magnet",
+        action="store_true",
+        help="применить раскладку магнитом ККС: аппараты, кабели и шкафы для режимов-сигналов",
+    )
+    parser.add_argument(
+        "--layout",
+        help='файл JSON с раскладкой по реестрам: {"Кабельная база": {"signal": …}}',
+    )
     parser.add_argument("--report", help="сохранить полный отчёт в файл JSON")
     args = parser.parse_args(argv)
     if args.apply and not args.target:
         parser.error("для --apply нужна база LOCALAI: --target")
     decisions = Decisions(
-        site_id=args.site_id, site_name=args.site_name, include_audit=not args.no_audit
+        site_id=args.site_id,
+        site_name=args.site_name,
+        include_audit=not args.no_audit,
+        magnet=args.magnet,
+        layouts=_layouts(parser, args.layout),
     )
     if args.report and _touches_databases(Path(args.report), args.source, args.target):
         parser.error("файл отчёта совпадает с базой Local_DB или LOCALAI; укажите другой путь")
@@ -68,6 +82,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"\nПолный отчёт: {args.report}")
     return 0 if report["mode"] != "refused" else 1
+
+
+def _layouts(parser: argparse.ArgumentParser, path: str | None) -> dict[str, dict[str, Any]]:
+    """Раскладка, поправленная администратором: тот же вид, что в отчёте («layout»)."""
+    if path is None:
+        return {}
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        parser.error(f"файл раскладки {path} не читается: {error}")
+    if not isinstance(data, dict) or not all(isinstance(item, dict) for item in data.values()):
+        parser.error("файл раскладки: объект {реестр: раскладка}")
+    return data
 
 
 def _target(target: str | None, apply: bool, scratch: Path) -> str:

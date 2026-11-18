@@ -9,8 +9,15 @@ dependencies = []
 
 [project.optional-dependencies]
 # Сервер написан на Starlette (основа FastAPI) и Pydantic; cryptography шифрует копии и
-# создаёт сертификат HTTPS. Версии — те, на которых сервер проверен.
-server = ["starlette>=1.7", "pydantic>=2.13", "uvicorn>=0.54", "cryptography>=50"]
+# создаёт сертификат HTTPS; openpyxl читает книги Excel при переносе. Версии — те, на которых
+# сервер проверен.
+server = [
+    "starlette>=1.7",
+    "pydantic>=2.13",
+    "uvicorn>=0.54",
+    "cryptography>=50",
+    "openpyxl>=3.1",
+]
 dev = ["pytest>=8", "anyio>=4"]
 
 [build-system]

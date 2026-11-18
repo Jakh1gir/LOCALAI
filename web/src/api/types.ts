@@ -97,6 +97,21 @@ export type BackupRestoreResult = {
   protective_backup: Backup;
   schema_version: number;
 };
+export type KksRules = {
+  signal_pattern: string;
+  updated_at: string;
+  example: { code: string; object: string; signal: string | null };
+};
+export type KksResolution = {
+  id: string;
+  site_id: string;
+  code: string;
+  name: string | null;
+  via: 'code' | 'alias' | 'signal';
+  alias?: string;
+  signal?: string;
+  signal_code?: string;
+};
 
 export type Scalar = string | number | boolean | null;
 export type RecordDoc = Record<string, Scalar | Scalar[]>;
