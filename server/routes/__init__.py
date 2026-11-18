@@ -1,6 +1,6 @@
 """Все маршруты API версии 1, по модулям областей (ARCH-04)."""
 
-from server.routes import access, auth, backups, graph, kks, records, structure, system
+from server.routes import access, auth, backups, chat, graph, kks, records, structure, system
 
 ENDPOINTS = [
     *auth.ENDPOINTS,
@@ -11,4 +11,5 @@ ENDPOINTS = [
     *graph.ENDPOINTS,
     *system.ENDPOINTS,
     *backups.ENDPOINTS,
+    *chat.ENDPOINTS,
 ]
