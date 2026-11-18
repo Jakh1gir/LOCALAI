@@ -8,6 +8,9 @@ NOT_FOUND = "not_found"
 INVALID = "invalid"
 CONFLICT = "conflict"
 TOO_LARGE = "too_large"
+UNAUTHORIZED = "unauthorized"
+FORBIDDEN = "forbidden"
+TOO_MANY = "too_many"
 
 
 class EngineError(Exception):
@@ -60,4 +63,6 @@ _KIND_NAMES = {
     "record": "запись",
     "kks": "объект ККС",
     "kks_alias": "псевдоним ККС",
+    "role": "роль",
+    "user": "пользователь",
 }

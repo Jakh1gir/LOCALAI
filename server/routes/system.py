@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import engine
-from engine import audit, migrator
+from engine import access, audit, migrator
 from server.api import Call, Endpoint
 
 
@@ -31,6 +31,8 @@ def health(call: Call) -> dict[str, Any]:
         "version": engine.__version__,
         "schema_version": migrator.current_version(call.conn),
         "database_id": row[0] if row else None,
+        # Нет ни одного пользователя: установщик ещё не создал администратора.
+        "setup_required": not access.has_users(call.conn),
     }
 
 
@@ -39,7 +41,7 @@ ENDPOINTS = [
         "GET",
         "/audit",
         list_audit,
-        "audit.read",
+        "section.admin",
         query=("entity_id", "dataset_id", "before", "limit"),
         tag="Журнал",
     ),

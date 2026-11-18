@@ -72,7 +72,7 @@ def test_every_route_declares_a_known_permission():
     for endpoint in ENDPOINTS:
         assert endpoint.permission in api.PERMISSIONS, endpoint.path  # API-02
     public = [endpoint.path for endpoint in ENDPOINTS if endpoint.permission == "public"]
-    assert public == ["/system/health"]
+    assert public == ["/auth/login", "/system/health"]
 
 
 def test_openapi_file_matches_code():
@@ -133,7 +133,8 @@ def test_record_lifecycle_through_the_api(client, plant):
 
     history = client.get(f"/records/{record['id']}/history").json()["items"]
     assert [item["version"] for item in history] == [2, 1]
-    assert history[0]["actor_label"] == "Локальный пользователь"
+    assert history[0]["actor_label"] == "Тестовый администратор"  # учётная запись (ROLE-04)
+    assert history[0]["actor_id"] is not None
     first = client.get(f"/records/{record['id']}/versions/1").json()
     assert first["doc"]["name"] == "Насос" and first["refs"]["kks"]
     rolled = client.post(
@@ -263,7 +264,7 @@ def test_unexpected_failure_is_reported_without_details(tmp_path, monkeypatch):
     monkeypatch.setattr("server.routes.system.ENDPOINTS", [])
     endpoint = api.Endpoint("GET", "/system/health", boom, "public")
     monkeypatch.setattr("server.app.ENDPOINTS", [endpoint])
-    reply = Client(create_app(tmp_path / "x.sqlite3")).get("/system/health")
+    reply = Client(create_app(tmp_path / "x.sqlite3"), login=None).get("/system/health")
     assert reply.status == 500
     assert reply.json()["error"]["code"] == "internal"
     assert "секрет" not in reply.body.decode()

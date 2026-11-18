@@ -67,16 +67,22 @@ class Tx:
         *,
         dataset_id: str | None = None,
         details: dict[str, Any] | None = None,
+        actor: Actor | None = None,
     ) -> None:
-        """Строка журнала в той же транзакции, что и само изменение."""
+        """Строка журнала в той же транзакции, что и само изменение.
+
+        ``actor`` нужен, когда автор выясняется внутри действия: при входе
+        транзакция начинается без пользователя, а в журнал пишется учётная запись.
+        """
+        actor = actor or self.actor
         self.conn.execute(
             "INSERT INTO audit_log (at, actor_id, actor_label, origin, action,"
             " entity_kind, entity_id, dataset_id, details) VALUES (?,?,?,?,?,?,?,?,?)",
             (
                 self.now,
-                self.actor.id,
-                self.actor.label,
-                self.actor.origin,
+                actor.id,
+                actor.label,
+                actor.origin,
                 action,
                 entity_kind,
                 entity_id,

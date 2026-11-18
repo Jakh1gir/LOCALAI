@@ -131,20 +131,24 @@ def reindex_kks(conn: sqlite3.Connection, kks_id: str) -> int:
 
 
 def search_sql(
-    schema: structure.TypeSchema, site_id: str, query: str
+    schema: structure.TypeSchema, site_id: str, query: str, *, scan: bool = False
 ) -> tuple[str, list[Any]] | None:
-    """Условие SQL для строки поиска: каждое слово должно встретиться в записи."""
+    """Условие SQL для строки поиска: каждое слово должно встретиться в записи.
+
+    ``scan`` — искать перебором значений полей ``schema`` без индекса: так
+    поиск не видит полей, которых нет в ``schema``.
+    """
     tokens = text.fold(query).split()
     if not tokens:
         return None
     clauses: list[str] = []
     params: list[Any] = []
-    long = [token for token in tokens if len(token) >= MIN_TOKEN]
+    long = [token for token in tokens if len(token) >= MIN_TOKEN and not scan]
     if long:
         clauses.append(f"seq IN ({MATCH_SQL})")
         params.append(" AND ".join(phrase(token) for token in long))
     for token in tokens:
-        if len(token) < MIN_TOKEN:
+        if scan or len(token) < MIN_TOKEN:
             sql, extra = _short_token_sql(schema, site_id, token)
             clauses.append(sql)
             params.extend(extra)
@@ -176,12 +180,16 @@ def _short_token_sql(
             " AND instr(lai_fold(jt.atom), ?) > 0)"
         )
         params.append(token)
-    dictionaries = sorted({f.dictionary_id for f in fields if f.kind == "choice"})
+    choices = [field for field in fields if field.kind == "choice"]
+    dictionaries = sorted({field.dictionary_id for field in choices})
     if dictionaries:
         marks = ",".join("?" * len(dictionaries))
+        keys = ",".join(f"'{field.key}'" for field in choices)
+        paths = ",".join(f"'$.{field.key}'" for field in choices)
         options.append(
             "EXISTS (SELECT 1 FROM json_tree(doc) AS jt JOIN dictionary_values dv"
             f" ON dv.id = jt.atom WHERE dv.dictionary_id IN ({marks})"
+            f" AND ((jt.path = '$' AND jt.key IN ({keys})) OR jt.path IN ({paths}))"
             " AND instr(lai_fold(dv.value), ?) > 0)"
         )
         params.extend([*dictionaries, token])

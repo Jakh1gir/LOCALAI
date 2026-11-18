@@ -9,7 +9,9 @@ from engine.errors import NOT_FOUND
 from server import schemas
 from server.api import Call, Endpoint
 
-READ, WRITE = "kks.read", "kks.write"
+# Каталог ККС общий для площадки: искать и открывать карточку может каждый
+# вошедший, менять коды и псевдонимы — роль с разделом «Каталог ККС».
+READ, WRITE = "session", "section.kks"
 
 
 def search(call: Call) -> dict[str, Any]:
@@ -41,7 +43,11 @@ def create(call: Call) -> dict[str, Any]:
 
 def card(call: Call) -> dict[str, Any]:
     """Карточка ККС: объект, псевдонимы, связанные записи по реестрам и ролям."""
-    return kks.card(call.conn, call.params["id"])
+    found = kks.card(call.conn, call.params["id"])
+    found["usage"] = [
+        item for item in found["usage"] if call.access.can(item["dataset_id"], "view")
+    ]
+    return found
 
 
 def update(call: Call) -> dict[str, Any]:

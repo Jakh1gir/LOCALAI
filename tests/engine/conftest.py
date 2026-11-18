@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from engine import Actor, Database, open_database, structure
+from engine import Actor, Database, open_database, passwords, structure
 
 ENGINEER = Actor("11111111-1111-4111-8111-111111111111", "Инженер Петров")
 
@@ -49,3 +49,6 @@ def plant(db):
         "makers": makers,
         "siemens": siemens,
     }
+
+
+passwords.COST = 4  # стойкость хэша тестам не нужна, а 0,1 с на пароль заметны

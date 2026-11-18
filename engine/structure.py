@@ -63,6 +63,13 @@ class TypeSchema:
                 return field
         return None
 
+    def without(self, keys: frozenset[str]) -> TypeSchema:
+        """Схема без скрытых от пользователя полей (ROLE-03)."""
+        if not keys:
+            return self
+        kept = tuple(field for field in self.fields if field.key not in keys)
+        return TypeSchema(self.id, self.name, self.schema_rev, kept)
+
 
 # Площадки -----------------------------------------------------------------
 

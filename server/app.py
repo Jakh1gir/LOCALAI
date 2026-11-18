@@ -7,19 +7,19 @@ from pathlib import Path
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 
-from engine import Actor, Database, EngineError, open_database
+from engine import Database, EngineError, open_database
 from server import api
 from server.routes import ENDPOINTS
 
-# До этапа 2 входа нет: все действия записываются от имени локального пользователя,
-# а сервер по умолчанию слушает только этот компьютер.
-LOCAL_USER = Actor(None, "Локальный пользователь", "user")
 
+def create_app(database: str | Path | Database) -> Starlette:
+    """Приложение поверх базы; база открывается и доводится до текущей схемы сразу.
 
-def create_app(database: str | Path | Database, *, actor: Actor = LOCAL_USER) -> Starlette:
-    """Приложение поверх базы; база открывается и доводится до текущей схемы сразу."""
+    Каждый маршрут, кроме открытых, требует входа (API-02). Первого
+    администратора создаёт ``python -m server.admin``.
+    """
     db = database if isinstance(database, Database) else open_database(str(database))
-    server = api.Server(db, actor)
+    server = api.Server(db)
     app = Starlette(
         routes=[server.route(endpoint) for endpoint in ENDPOINTS],
         exception_handlers={

@@ -46,13 +46,21 @@ class _Compiled:
 
 
 def list_records(
-    conn: sqlite3.Connection, dataset_id: str, query: dict[str, Any] | None = None
+    conn: sqlite3.Connection,
+    dataset_id: str,
+    query: dict[str, Any] | None = None,
+    *,
+    hidden: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
-    """Страница записей реестра: ``items``, ``next_cursor`` и ``refs`` для показа ID."""
+    """Страница записей реестра: ``items``, ``next_cursor`` и ``refs`` для показа ID.
+
+    ``hidden`` — ключи полей, скрытых от пользователя (ROLE-03): их нет в
+    документах ответа, по ним нельзя фильтровать, сортировать и искать.
+    """
     query = query or {}
     dataset = structure.load_dataset(conn, dataset_id)
-    schema = structure.load_schema(conn, dataset["type_id"])
-    compiled = _compile(conn, dataset, schema, query)
+    schema = structure.load_schema(conn, dataset["type_id"]).without(hidden)
+    compiled = _compile(conn, dataset, schema, query, hidden=bool(hidden))
     limit = _limit(query.get("limit"))
     segments: list[tuple[str | None, list[Any], bool]] = [(None, [], False)]
     if query.get("cursor"):
@@ -79,7 +87,7 @@ def list_records(
             (*compiled.params, *extra, wanted),
         ).fetchall()
     page = rows[:limit]
-    items = [_item(row, dataset_id) for row in page]
+    items = [_item(row, dataset_id, hidden) for row in page]
     cursor = None
     if len(rows) > limit:
         last = page[-1]
@@ -88,12 +96,16 @@ def list_records(
 
 
 def count_records(
-    conn: sqlite3.Connection, dataset_id: str, query: dict[str, Any] | None = None
+    conn: sqlite3.Connection,
+    dataset_id: str,
+    query: dict[str, Any] | None = None,
+    *,
+    hidden: frozenset[str] = frozenset(),
 ) -> int:
     """Число записей по тем же условиям, что и список."""
     dataset = structure.load_dataset(conn, dataset_id)
-    schema = structure.load_schema(conn, dataset["type_id"])
-    compiled = _compile(conn, dataset, schema, query or {})
+    schema = structure.load_schema(conn, dataset["type_id"]).without(hidden)
+    compiled = _compile(conn, dataset, schema, query or {}, hidden=bool(hidden))
     row = conn.execute(
         f"SELECT COUNT(*) FROM records WHERE {' AND '.join(compiled.where)}", compiled.params
     ).fetchone()
@@ -108,6 +120,8 @@ def _compile(
     dataset: dict[str, Any],
     schema: structure.TypeSchema,
     query: dict[str, Any],
+    *,
+    hidden: bool = False,
 ) -> _Compiled:
     unknown = set(query) - {"where", "search", "sort", "limit", "cursor", "archived", "kks"}
     if unknown:
@@ -127,10 +141,20 @@ def _compile(
     for condition in conditions:
         out.where.append(builder.build(condition))
     if query.get("kks"):
-        out.where.append("seq IN (SELECT record_seq FROM record_kks_links WHERE kks_id = ?)")
-        out.params.append(query["kks"])
+        # Связь через скрытое поле не должна выдавать запись: учитываются
+        # только связи видимых полей.
+        keys = [field.key for field in schema.fields if field.kind == "kks"]
+        marks = ",".join("?" * len(keys))
+        out.where.append(
+            "seq IN (SELECT record_seq FROM record_kks_links"
+            f" WHERE kks_id = ? AND field_key IN ({marks}))"
+        )
+        out.params.extend([query["kks"], *keys])
     if query.get("search"):
-        found = fulltext.search_sql(schema, dataset["site_id"], str(query["search"]))
+        # Полнотекстовый индекс общий для всех полей записи. Если часть полей
+        # скрыта, слова ищутся перебором значений видимых полей: медленнее,
+        # но скрытое значение не находит запись.
+        found = fulltext.search_sql(schema, dataset["site_id"], str(query["search"]), scan=hidden)
         if found:
             out.where.append(found[0])
             out.params.extend(found[1])
@@ -428,12 +452,13 @@ def _bad(message: str, name: Any = None) -> EngineError:
     return EngineError("query_invalid", message, field=name if isinstance(name, str) else None)
 
 
-def _item(row: sqlite3.Row, dataset_id: str) -> dict[str, Any]:
+def _item(row: sqlite3.Row, dataset_id: str, hidden: frozenset[str]) -> dict[str, Any]:
+    doc = json.loads(row["doc"])
     return {
         "id": row["id"],
         "dataset_id": dataset_id,
         "version": row["version"],
-        "doc": json.loads(row["doc"]),
+        "doc": {key: value for key, value in doc.items() if key not in hidden},
         "archived_at": row["archived_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
