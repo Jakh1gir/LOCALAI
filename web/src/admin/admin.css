@@ -1,0 +1,76 @@
+.access { font-size: var(--font-base); line-height: var(--leading); }
+.access h2, .access h3, .access h4 { margin: 0; color: var(--text); }
+.access h2 { font-size: var(--font-lg); font-weight: 650; letter-spacing: -.02em; }
+.access h3 { font-size: var(--font-md); font-weight: 650; }
+.access h4 { font-size: var(--font-base); font-weight: 620; }
+.access button, .access input, .access select, .access textarea { font: inherit; }
+.access button, .access select, .access input:not([type='checkbox']), .access textarea {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.access button { font-weight: 540; white-space: nowrap; }
+.access button:hover:not(:disabled) { background: var(--accent-surface); border-color: var(--accent-border); }
+.access button:disabled { cursor: default; opacity: .55; }
+.access input:disabled, .access select:disabled, .access textarea:disabled { color: var(--muted); }
+.access .primary { color: var(--accent-on-solid); background: var(--accent-solid); border-color: var(--accent-solid); }
+.access .primary:hover:not(:disabled) { color: var(--text); }
+.access :is(select, textarea):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.access [aria-invalid='true'] { border-color: var(--error); }
+.access input[type='checkbox'] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent-solid); }
+.access label { display: grid; gap: var(--space-2); color: var(--muted); font-size: var(--font-sm); }
+.access .check-label { display: flex; align-items: center; gap: var(--space-3); min-height: var(--control-height); color: var(--text); }
+.access-tabs { display: flex; gap: var(--space-2); overflow-x: auto; margin-bottom: var(--space-7); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+.access-tabs button { border-color: transparent; background: transparent; color: var(--muted); }
+.access-tabs button[aria-current='page'] { color: var(--accent-solid); background: var(--accent-surface); border-color: var(--accent-border); }
+.access-toolbar { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); margin-bottom: var(--space-5); }
+.access-panel { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-low); }
+.access-columns { display: grid; align-items: start; gap: var(--space-5); }
+.access-columns.with-editor { grid-template-columns: minmax(0, 1fr) minmax(260px, 300px); }
+.table-scroll { overflow-x: auto; }
+.access-table { width: 100%; border-collapse: collapse; text-align: left; font-size: var(--font-sm); }
+.access-table th, .access-table td { padding: var(--space-3) var(--cell-padding-x); vertical-align: top; border-bottom: 1px solid var(--rule); }
+.access-table thead th { color: var(--muted); background: var(--surface-subtle); font-weight: 550; white-space: nowrap; }
+.access-table tbody th { font-weight: 560; }
+.access-table tbody tr:last-child > * { border-bottom: 0; }
+.access-table tbody tr.selected { background: var(--selection); }
+.access-table .cell-description { display: block; max-width: 32em; margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--font-xs); font-weight: 400; }
+.access-table .text-button { border: 0; min-height: auto; padding: 0; background: transparent; color: var(--accent-solid); }
+.access-table .text-button:hover { text-decoration: underline; }
+.state-list { display: grid; justify-items: start; gap: var(--space-1); }
+.state-badge { display: inline-block; padding: var(--space-1) var(--space-2); background: var(--warn-surface); color: var(--warn); border-radius: var(--radius-sm); font-size: var(--font-xs); }
+.state-badge.muted { background: var(--surface-subtle); color: var(--muted); }
+.date-cell { min-width: 135px; color: var(--muted); }
+.row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.row-actions button { min-height: 30px; padding: var(--space-1) var(--space-2); font-size: var(--font-xs); }
+.access .editor { display: grid; gap: var(--space-4); padding: var(--space-5); }
+.access .editor p { margin: 0; }
+.access .form-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.access .form-error { color: var(--error); margin: var(--space-2) 0 0; overflow-wrap: anywhere; }
+.access .muted { color: var(--muted); }
+.access .mono { font-family: var(--font-code); }
+.secret-dialog p { margin: var(--space-4) 0; }
+.secret-dialog input { width: 100%; }
+.secret-dialog .form-actions { margin-top: var(--space-5); }
+.matrix-panel { margin-top: var(--space-5); padding: var(--space-5); }
+.matrix-panel fieldset { margin: 0 0 var(--space-5); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); min-width: 0; }
+.matrix-panel legend { padding-inline: var(--space-2); font-weight: 620; }
+.matrix-panel fieldset > p { margin: 0 0 var(--space-4); }
+.matrix-panel .permission-table th:first-child { min-width: 220px; }
+.matrix-panel .permission-table td { text-align: center; vertical-align: middle; }
+.matrix-panel .permission-table th:not(:first-child) { white-space: normal; min-width: 100px; text-align: center; }
+.add-dataset { display: flex; align-items: end; gap: var(--space-3); margin-top: var(--space-4); }
+.add-dataset label { flex: 1; max-width: 380px; }
+.type-picker { max-width: 380px; margin-bottom: var(--space-4); }
+.permission-review { display: flex; flex-wrap: wrap; gap: var(--space-6); padding-bottom: var(--space-4); }
+.permission-review ul { max-height: 220px; overflow: auto; margin: var(--space-2) 0 0; padding-left: var(--space-5); }
+.permission-review li { margin-bottom: var(--space-1); }
+@media (max-width: 1120px) { .access-columns.with-editor { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) {
+  .access-toolbar { align-items: start; flex-direction: column; }
+  .add-dataset { align-items: stretch; flex-direction: column; }
+  .matrix-panel { padding: var(--space-3); }
+}

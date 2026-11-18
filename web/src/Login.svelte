@@ -14,9 +14,9 @@
   let password = $state('');
   let busy = $state(false);
   let problem = $state('');
-  let loginInput: HTMLInputElement;
+  let loginInput = $state<HTMLInputElement>();
 
-  onMount(() => loginInput.focus());
+  onMount(() => loginInput?.focus());
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -45,7 +45,7 @@
     {#if setupRequired}
       <p class="auth-notice">{text.setupRequired}</p>
       <code class="auth-command">{text.setupCommand}</code>
-    {/if}
+    {:else}
     <label class="auth-field">
       <span>{text.loginField}</span>
       <input bind:this={loginInput} name="username" autocomplete="username" required bind:value={login} />
@@ -58,5 +58,6 @@
       <p class="auth-error" role="alert">{problem}</p>
     {/if}
     <button class="auth-submit" type="submit" disabled={busy}>{busy ? text.signingIn : text.signIn}</button>
+    {/if}
   </form>
 </main>
