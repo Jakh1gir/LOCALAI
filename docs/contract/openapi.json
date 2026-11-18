@@ -170,6 +170,18 @@
       "FieldCreate": {
         "additionalProperties": false,
         "properties": {
+          "contact_for": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Contact For"
+          },
           "dictionary_id": {
             "anyOf": [
               {
@@ -223,7 +235,8 @@
               "boolean",
               "date",
               "choice",
-              "kks"
+              "kks",
+              "record"
             ],
             "title": "Kind",
             "type": "string"
@@ -271,6 +284,23 @@
             "default": false,
             "title": "Sortable",
             "type": "boolean"
+          },
+          "target_type_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Type Id"
+          },
+          "unique": {
+            "default": false,
+            "title": "Unique",
+            "type": "boolean"
           }
         },
         "required": [
@@ -283,6 +313,18 @@
       "FieldPatch": {
         "additionalProperties": false,
         "properties": {
+          "contact_for": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Contact For"
+          },
           "filterable": {
             "anyOf": [
               {
@@ -370,6 +412,18 @@
             ],
             "default": null,
             "title": "Sortable"
+          },
+          "unique": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unique"
           }
         },
         "title": "FieldPatch",
@@ -442,6 +496,20 @@
           }
         },
         "title": "KksPatch",
+        "type": "object"
+      },
+      "KksRules": {
+        "additionalProperties": false,
+        "properties": {
+          "signal_pattern": {
+            "title": "Signal Pattern",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_pattern"
+        ],
+        "title": "KksRules",
         "type": "object"
       },
       "Login": {
@@ -3699,6 +3767,172 @@
         "x-permission": "section.structure"
       }
     },
+    "/api/v1/graph/neighbourhood": {
+      "get": {
+        "operationId": "graph_neighbourhood",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "node",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Всё, что связано с объектом ККС или записью, на заданную глубину.",
+        "tags": [
+          "Граф"
+        ],
+        "x-permission": "session"
+      }
+    },
+    "/api/v1/graph/path": {
+      "get": {
+        "operationId": "graph_path",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Кратчайший путь между двумя узлами графа.",
+        "tags": [
+          "Граф"
+        ],
+        "x-permission": "session"
+      }
+    },
     "/api/v1/kks-aliases/{id}": {
       "delete": {
         "operationId": "kks_remove_alias",
@@ -3782,6 +4016,157 @@
           "ККС"
         ],
         "x-permission": "section.kks"
+      }
+    },
+    "/api/v1/kks/rules": {
+      "get": {
+        "operationId": "kks_get_rules",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Правило кода станции: признак сигнала в конце кода и пример разбора.",
+        "tags": [
+          "ККС"
+        ],
+        "x-permission": "session"
+      },
+      "put": {
+        "operationId": "kks_set_rules",
+        "parameters": [
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KksRules"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Изменить правило признака сигнала (DATA-16).",
+        "tags": [
+          "ККС"
+        ],
+        "x-permission": "section.structure"
       }
     },
     "/api/v1/kks/{id}": {
@@ -4115,7 +4500,7 @@
             "description": "Ошибка: код, текст на русском, поле"
           }
         },
-        "summary": "Запись и названия для её ID.",
+        "summary": "Запись, названия для её ID и записи, которые на неё ссылаются (DATA-13).",
         "tags": [
           "Записи"
         ],
@@ -5659,7 +6044,7 @@
             "description": "Ошибка: код, текст на русском, поле"
           }
         },
-        "summary": "Объект по коду или псевдониму.",
+        "summary": "Объект по коду, псевдониму или коду сигнала (``via: \"signal\"``).",
         "tags": [
           "ККС"
         ],

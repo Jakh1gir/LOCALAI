@@ -14,7 +14,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
 
-from engine import fulltext, kks, structure, text
+from engine import fulltext, kks, links, structure, text
 from engine.errors import EngineError
 from engine.validation import MAX_INT, MIN_INT, coerce_scalar, load_dictionary
 
@@ -222,6 +222,8 @@ class _Conditions:
     def _field(self, found: structure.Field, expr: str, op: str, value: Any) -> str:
         if found.kind == "choice":
             return self._choice(found, expr, op, value)
+        if found.kind == "record":
+            return self._record(found, expr, op, value)
         sql = self._scalar(expr, found.kind, op, value, found.key)
         if found.kind == "text" and op in _TEXT_OPS and found.searchable:
             # Индекс поиска сначала отбирает записи, где текст есть хоть в каком-то
@@ -276,6 +278,19 @@ class _Conditions:
         wanted = _list(value, found.key) if op == "in" else [_required(value, found.key)]
         ids = [_choice_id(known, item) for item in wanted]
         return self._ids(expr, op, [item for item in ids if item])
+
+    def _record(self, found: structure.Field, expr: str, op: str, value: Any) -> str:
+        """Ссылка на запись: по UUID или по уникальному значению записи-цели."""
+        if op not in ("eq", "ne", "in"):
+            raise _bad("Для ссылки на запись доступны eq, ne, in", found.key)
+        wanted = _list(value, found.key) if op == "in" else [_required(value, found.key)]
+        ids = []
+        for item in wanted:
+            try:
+                ids.append(links.resolve(self.conn, found, self.site_id, item))
+            except EngineError:
+                continue  # нет такой записи — условие просто ничего не находит
+        return self._ids(expr, op, ids)
 
     def _kks(self, found: structure.Field, op: str, value: Any) -> str:
         """Условие по полю ККС идёт через таблицу связей и её индекс по объекту."""
@@ -478,7 +493,7 @@ def _refs(
     conn: sqlite3.Connection, schema: structure.TypeSchema, items: list[dict[str, Any]]
 ) -> dict[str, dict[str, str]]:
     """Названия для ID на странице: значения справочников и коды ККС."""
-    wanted: dict[str, set[str]] = {"choice": set(), "kks": set()}
+    wanted: dict[str, set[str]] = {"choice": set(), "kks": set(), "record": set()}
     for found in schema.fields:
         if found.kind not in wanted:
             continue
@@ -489,6 +504,7 @@ def _refs(
     return {
         "choices": _names(conn, "dictionary_values", "value", wanted["choice"]),
         "kks": _names(conn, "kks_objects", "code", wanted["kks"]),
+        "records": links.labels(conn, wanted["record"]),
     }
 
 
