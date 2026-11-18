@@ -254,3 +254,13 @@ class ImportDecision(Body):
 
 class ImportApply(Body):
     save_profile: str | None = None
+
+
+class ExportRequest(Body):
+    format: Literal["xlsx", "csv", "json"] = "xlsx"
+    query: RecordCount | None = None
+    sort: dict[str, Any] | list[dict[str, Any]] | None = None
+    columns: list[str] | None = None
+    headers: dict[str, str] | None = None
+    group_by: str | None = None
+    template: bool = True

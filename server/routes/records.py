@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from starlette.responses import Response
+
 from engine import EngineError, batch, facets, links, query, records, structure
 from engine.errors import FORBIDDEN
-from server import schemas
+from server import export, schemas
 from server.api import Call, Endpoint
 
 
@@ -58,6 +60,23 @@ def value_counts(call: Call) -> dict[str, Any]:
     dataset_id = call.params["id"]
     return facets.value_counts(
         call.conn, dataset_id, field, request, limit=limit, hidden=_hidden(call, dataset_id)
+    )
+
+
+def export_records(call: Call) -> Response:
+    """Выгрузить записи реестра в Excel, CSV или JSON с текущими условиями."""
+    dataset_id = call.params["id"]
+    if not call.access.can(dataset_id, "view"):
+        raise EngineError(
+            "forbidden",
+            "Недостаточно прав: видеть записи",
+            status=FORBIDDEN,
+            details={"permission": "dataset.view"},
+        )
+    request = call.body.model_dump(exclude_none=True)
+    body, filename, media = export.export(call.conn, call.access, dataset_id, request)
+    return Response(
+        body, media_type=media, headers={"content-disposition": export.disposition(filename)}
     )
 
 
@@ -197,6 +216,15 @@ ENDPOINTS = [
         value_counts,
         "dataset.view",
         body=schemas.ValueCounts,
+        read_only=True,
+        **ON_DATASET,
+    ),
+    _e(
+        "POST",
+        "/datasets/{id}/export",
+        export_records,
+        "dataset.export",
+        body=schemas.ExportRequest,
         read_only=True,
         **ON_DATASET,
     ),

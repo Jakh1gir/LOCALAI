@@ -262,6 +262,7 @@ class _Job:
         self.type_id: str | None = None
         self.mapping: dict[str, str] = dict(settings.get("mapping") or {})
         self.key: str | None = settings.get("key")
+        self.multiple: set[str] = set()
 
     def schema_revs(self) -> dict[str, int]:
         if self.mode != "records" or self.type_id is None:
@@ -277,6 +278,7 @@ class _Job:
         self._check_mapping(schema)
         dataset_seq = structure.load_dataset(self.tx.conn, self.dataset_id)["seq"]
         key_field = schema.by_key(self.key) if self.key else None
+        self.multiple = {item.key for item in schema.fields if item.multiple}
         created: dict[str, int] = {}  # ключ созданной записи или ID найденной → строка книги
         outcomes = []
         for number, cells in self.page.rows:
@@ -396,7 +398,7 @@ class _Job:
             if header in self.mapping and value not in (None, "")
         }
         values = {
-            self.mapping[header]: value
+            self.mapping[header]: _split(value) if self.mapping[header] in self.multiple else value
             for header, value in kept.items()
             if self.mapping[header] not in (ID_COLUMN, VERSION_COLUMN)
         }
@@ -559,6 +561,13 @@ def _schema_moved(conn: Any, revs: dict[str, int]) -> bool:
         if row is None or row[0] != rev:
             return True
     return False
+
+
+def _split(value: Any) -> Any:
+    """Несколько значений в одной ячейке — через «;», как их выгружает экспорт."""
+    if not isinstance(value, str):
+        return [value]
+    return [item.strip() for item in value.split(";") if item.strip()]
 
 
 def _header_of(mapping: dict[str, str], target: str) -> str | None:
