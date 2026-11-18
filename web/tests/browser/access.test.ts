@@ -3,15 +3,12 @@ import { randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright-core';
-import { preview } from 'vite';
+import type { Browser, Page } from 'playwright-core';
 import type { Dataset, PermissionCatalog, RoleDetails, User } from '../../src/api/types.ts';
 import { text } from '../../src/text.ts';
-import { startAccessServer } from './server.ts';
+import { confirmAccessAction, openAccessPage } from './server.ts';
 
 const copy = text.access;
-const root = fileURLToPath(new URL('../../', import.meta.url));
 
 async function signIn(page: Page, login: string, password: string) {
   await page.getByLabel(text.loginField, { exact: true }).fill(login);
@@ -227,6 +224,7 @@ async function lastAdmin(page: Page, login: string, catalog: PermissionCatalog) 
     (response) => response.url().endsWith('/block') && response.status() === 409,
   );
   await row.getByRole('button', { name: copy.block, exact: true }).click();
+  await confirmAccessAction(page, copy.block);
   const message = (await (await rejected).json()).error.message;
   await row.getByRole('alert').filter({ hasText: message }).waitFor();
   await roles(page);
@@ -235,6 +233,7 @@ async function lastAdmin(page: Page, login: string, catalog: PermissionCatalog) 
     .getByRole('row')
     .filter({ has: page.getByRole('button', { name: 'Администратор', exact: true }) });
   await admin.getByRole('button', { name: copy.disable, exact: true }).click();
+  await confirmAccessAction(page, copy.disableRoleAction);
   await admin.getByRole('alert').waitFor();
   await admin.getByRole('button', { name: copy.permissions, exact: true }).click();
   const matrix = page.getByRole('region', { name: `${copy.permissions} · Администратор` });
@@ -258,9 +257,11 @@ async function lifecycle(page: Page, user: User, role: { id: string; name: strin
   await form.getByRole('button', { name: copy.save, exact: true }).click();
   await row.getByRole('cell', { name: 'Инженер смены', exact: true }).waitFor();
   await row.getByRole('button', { name: copy.block, exact: true }).click();
+  await confirmAccessAction(page, copy.block);
   await row.getByRole('button', { name: copy.unblock, exact: true }).click();
   await row.getByRole('button', { name: copy.block, exact: true }).waitFor();
   await row.getByRole('button', { name: copy.resetPassword, exact: true }).click();
+  await confirmAccessAction(page, copy.resetPassword);
   const dialog = page.getByRole('dialog', { name: copy.temporaryPassword });
   await dialog.waitFor();
   assert.ok(
@@ -290,6 +291,7 @@ async function lifecycle(page: Page, user: User, role: { id: string; name: strin
   assert.equal(after.id, before.id);
   assert.deepEqual(after.permissions, before.permissions);
   await roleRow.getByRole('button', { name: copy.disable, exact: true }).click();
+  await confirmAccessAction(page, copy.disableRoleAction);
   await roleRow.getByRole('cell').filter({ hasText: copy.disabled }).waitFor();
   await roleRow.getByRole('button', { name: copy.restore, exact: true }).click();
   await roleRow.getByRole('button', { name: copy.disable, exact: true }).waitFor();
@@ -358,6 +360,7 @@ async function networks(page: Page) {
   }
   const current = table.getByRole('row').filter({ hasText: '10.20.30.0/24' });
   await current.getByRole('button', { name: copy.remove, exact: true }).click();
+  await confirmAccessAction(page, copy.removeNetworkAction);
   await current.getByRole('alert').filter({ hasText: copy.networkLockout }).waitFor();
   await screenshot(page, 'admin-networks');
   await table
@@ -365,37 +368,15 @@ async function networks(page: Page) {
     .filter({ hasText: '192.0.2.0/24' })
     .getByRole('button', { name: copy.remove, exact: true })
     .click();
+  await confirmAccessAction(page, copy.removeNetworkAction);
   await current.getByRole('button', { name: copy.remove, exact: true }).click();
+  await confirmAccessAction(page, copy.removeNetworkAction);
   await table.getByRole('cell', { name: copy.unrestricted, exact: true }).waitFor();
   await page.setExtraHTTPHeaders({});
 }
 
 test('C-201 на настоящем сервере с базой C-101', { timeout: 120_000 }, async (t) => {
-  const config = await startAccessServer(t);
-  const web = await preview({
-    root,
-    logLevel: 'error',
-    preview: {
-      host: '127.0.0.1',
-      port: 0,
-      strictPort: true,
-      proxy: { '/api/v1': config.url },
-    },
-  });
-  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE });
-  t.after(async () => {
-    await browser.close();
-    await web.close();
-  });
-  const address = web.httpServer.address();
-  assert.ok(address && typeof address !== 'string');
-  const origin = `http://127.0.0.1:${address.port}`;
-  const context = await browser.newContext({
-    baseURL: origin,
-    viewport: { width: 1600, height: 1000 },
-    permissions: ['clipboard-read', 'clipboard-write'],
-  });
-  const page = await context.newPage();
+  const { page, browser, origin, config } = await openAccessPage(t);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`${origin}/admin`);

@@ -4,6 +4,7 @@
   import Users from './Users.svelte';
   import Roles from './Roles.svelte';
   import Networks from './Networks.svelte';
+  import KksRules from './KksRules.svelte';
   import './admin.css';
 
   let {
@@ -15,9 +16,9 @@
     onChanged: () => Promise<void>;
     onDirty: (value: boolean) => void;
   } = $props();
-  let tab = $state<'users' | 'roles' | 'networks'>('users');
+  let tab = $state<'users' | 'roles' | 'networks' | 'kksRules'>('users');
   let dirty = $state(false);
-  const tabs = ['users', 'roles', 'networks'] as const;
+  const tabs = ['users', 'roles', 'networks', 'kksRules'] as const;
 
   function changed(value: boolean) {
     dirty = value;
@@ -46,7 +47,9 @@
     <Users {me} {onChanged} />
   {:else if tab === 'roles'}
     <Roles {onChanged} onDirty={changed} />
-  {:else}
+  {:else if tab === 'networks'}
     <Networks />
+  {:else}
+    <KksRules {me} />
   {/if}
 </section>

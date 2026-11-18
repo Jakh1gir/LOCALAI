@@ -4,6 +4,7 @@
   import type { Me, Role, TemporaryUser, User } from '../api/types.ts';
   import { text } from '../text.ts';
   import { problemText, showTime, userStates } from './model.ts';
+  import ConfirmAction from './ConfirmAction.svelte';
 
   let { me, onChanged }: { me: Me; onChanged: () => Promise<void> } = $props();
   const copy = text.access;
@@ -21,6 +22,7 @@
   let secret = $state<{ login: string; password: string; own: boolean } | null>(null);
   let secretDialog = $state<HTMLDialogElement>();
   let copyNotice = $state('');
+  let pending = $state<{ user: User; action: 'block' | 'reset' } | null>(null);
   const controller = new AbortController();
 
   $effect(() => {
@@ -117,6 +119,19 @@
     }
   }
 
+  function requestAction(user: User, action: 'block' | 'unblock' | 'reset') {
+    if (busy) return;
+    if (action === 'unblock') void act(user, action);
+    else pending = { user, action };
+  }
+
+  function confirmAction() {
+    if (!pending) return;
+    const { user, action } = pending;
+    pending = null;
+    void act(user, action);
+  }
+
   function closeSecret() {
     const own = secret?.own;
     secret = null;
@@ -173,10 +188,10 @@
                 >
                 <button
                   type="button"
-                  onclick={() => act(user, user.blocked_at ? 'unblock' : 'block')}
+                  onclick={() => requestAction(user, user.blocked_at ? 'unblock' : 'block')}
                   disabled={busy}>{user.blocked_at ? copy.unblock : copy.block}</button
                 >
-                <button type="button" onclick={() => act(user, 'reset')} disabled={busy}
+                <button type="button" onclick={() => requestAction(user, 'reset')} disabled={busy}
                   >{copy.resetPassword}</button
                 >
               </div>
@@ -271,3 +286,17 @@
     </div>
   {/if}
 </dialog>
+
+{#if pending}
+  <ConfirmAction
+    title={pending.action === 'reset'
+      ? copy.confirmReset(pending.user.name)
+      : copy.confirmBlock(pending.user.name)}
+    consequence={pending.action === 'reset' ? copy.resetConsequence : copy.blockConsequence}
+    action={pending.action === 'reset' ? copy.resetPassword : copy.block}
+    onConfirm={confirmAction}
+    onCancel={() => {
+      pending = null;
+    }}
+  />
+{/if}
