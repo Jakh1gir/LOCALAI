@@ -9,6 +9,7 @@ from server.routes import (
     imports,
     kks,
     records,
+    search,
     structure,
     system,
 )
@@ -24,4 +25,5 @@ ENDPOINTS = [
     *backups.ENDPOINTS,
     *chat.ENDPOINTS,
     *imports.ENDPOINTS,
+    *search.ENDPOINTS,
 ]
