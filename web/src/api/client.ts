@@ -1,7 +1,9 @@
 import { text } from '../text.ts';
 import type { paths } from './contract.d.ts';
 import type {
-  CountQuery, Dataset, Health, Items, Me, NamedEntity, RecordCreate, RecordDetail, RecordPage,
+  AllowedNetwork, CountQuery, Dataset, Health, Items, Me, NamedEntity, NetworkCreate,
+  Permission, PermissionCatalog, Role, RoleCreate, RoleDetails, RoleUpdate,
+  TemporaryUser, User, UserCreate, UserUpdate, RecordCreate, RecordDetail, RecordPage,
   RecordQuery, RecordRow, RecordType, RecordUpdate, RecordValues, TypeDetails,
 } from './types.ts';
 
@@ -105,13 +107,17 @@ async function send(request: Request, fetchRequest: Transport): Promise<unknown>
       return decode(response, raw);
     } catch (error) {
       if (signedOut(error)) sessionEvents.dispatchEvent(new Event('signed-out'));
+      if (error instanceof ApiError && error.status === 403 &&
+        (error.code === 'password_change_required' || error.code === 'forbidden')) {
+        sessionEvents.dispatchEvent(new Event('permissions-changed'));
+      }
       throw error;
     }
   }
 }
 
 type Options = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   id?: string;
   query?: Record<string, string | undefined>;
   body?: unknown;
@@ -155,6 +161,26 @@ export function createApiClient({
       request<Me>('/api/v1/auth/password', {
         method: 'POST', body: { current_password: currentPassword, new_password: newPassword }, signal,
       }),
+    permissionCatalog: (signal?: AbortSignal) =>
+      request<PermissionCatalog>('/api/v1/auth/permissions', { signal }),
+    listUsers: (signal?: AbortSignal) => request<Items<User>>('/api/v1/users', { signal }),
+    createUser: (body: UserCreate) => request<TemporaryUser>('/api/v1/users', { method: 'POST', body }),
+    updateUser: (id: string, body: UserUpdate) => request<User>('/api/v1/users/{id}', { method: 'PATCH', id, body }),
+    blockUser: (id: string) => request<User>('/api/v1/users/{id}/block', { method: 'POST', id }),
+    unblockUser: (id: string) => request<User>('/api/v1/users/{id}/unblock', { method: 'POST', id }),
+    resetPassword: (id: string) => request<TemporaryUser>('/api/v1/users/{id}/reset-password', { method: 'POST', id }),
+    listRoles: (signal?: AbortSignal) => request<Items<Role>>('/api/v1/roles', { signal }),
+    getRole: (id: string, signal?: AbortSignal) => request<RoleDetails>('/api/v1/roles/{id}', { id, signal }),
+    createRole: (body: RoleCreate) => request<RoleDetails>('/api/v1/roles', { method: 'POST', body }),
+    updateRole: (id: string, body: RoleUpdate) => request<RoleDetails>('/api/v1/roles/{id}', { method: 'PATCH', id, body }),
+    archiveRole: (id: string) => request<RoleDetails>('/api/v1/roles/{id}/archive', { method: 'POST', id }),
+    restoreRole: (id: string) => request<RoleDetails>('/api/v1/roles/{id}/restore', { method: 'POST', id }),
+    setPermissions: (id: string, permissions: Permission[]) => request<RoleDetails>('/api/v1/roles/{id}/permissions', {
+      method: 'PUT', id, body: { permissions },
+    }),
+    listNetworks: (signal?: AbortSignal) => request<Items<AllowedNetwork>>('/api/v1/system/allowed-ips', { signal }),
+    addNetwork: (body: NetworkCreate) => request<AllowedNetwork>('/api/v1/system/allowed-ips', { method: 'POST', body }),
+    removeNetwork: (id: string) => request<undefined>('/api/v1/system/allowed-ips/{id}', { method: 'DELETE', id }),
     listSites: (signal?: AbortSignal) =>
       request<Items<NamedEntity>>('/api/v1/sites', { signal }),
     listTypes: (signal?: AbortSignal) =>

@@ -52,6 +52,37 @@ export type TypeField = {
 };
 export type TypeDetails = RecordType & { fields: TypeField[] };
 
+export type Permission = Schemas['Permission'];
+export type PermissionCatalog = {
+  sections: Record<string, string>;
+  dataset_actions: Record<string, string>;
+  field_limits: Record<string, string>;
+  doc_type_actions: Record<string, string>;
+};
+export type Role = NamedEntity & { description: string | null; users: number };
+export type RoleDetails = Role & { permissions: Permission[] };
+export type User = {
+  id: string;
+  login: string;
+  name: string;
+  role_id: string;
+  role_name: string;
+  must_change_password: boolean;
+  blocked_at: string | null;
+  locked_until: string | null;
+  last_login_at: string | null;
+  password_changed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type TemporaryUser = User & { temporary_password?: string };
+export type AllowedNetwork = { id: string; network: string; note: string | null; created_at: string };
+export type UserCreate = Schemas['UserCreate'];
+export type UserUpdate = Schemas['UserPatch'];
+export type RoleCreate = Schemas['RoleCreate'];
+export type RoleUpdate = Schemas['RolePatch'];
+export type NetworkCreate = Schemas['NetworkCreate'];
+
 export type Scalar = string | number | boolean | null;
 export type RecordDoc = Record<string, Scalar | Scalar[]>;
 export type RecordValues = Schemas['RecordPatch']['values'];

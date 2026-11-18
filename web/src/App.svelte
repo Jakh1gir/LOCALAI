@@ -5,6 +5,7 @@
   import Icon from './Icon.svelte';
   import Login from './Login.svelte';
   import PasswordChange from './PasswordChange.svelte';
+  import Admin from './admin/Admin.svelte';
   import { findSection, homePath, sections } from './routes.ts';
   import { gateForError, gateForMe, type Gate } from './session.ts';
   import { text } from './text.ts';
@@ -20,11 +21,15 @@
   let searchInput = $state<HTMLInputElement>();
   let keywords = $state('');
   let load: AbortController | undefined;
+  let sessionLoad: AbortController | undefined;
   let gate = $state<Gate>('checking');
   let me = $state<Me | null>(null);
   let setupRequired = $state(false);
   let notice = $state('');
-  let found = $derived(sections.filter((item) =>
+  let adminDirty = $state(false);
+  let canAdmin = $derived(gate === 'ready' && me?.permissions.sections.includes('admin') === true);
+  let visibleSections = $derived(sections.filter((item) => item.path !== '/admin' || canAdmin));
+  let found = $derived(visibleSections.filter((item) =>
     item.title.toLocaleLowerCase('ru').includes(keywords.trim().toLocaleLowerCase('ru')),
   ));
 
@@ -53,21 +58,33 @@
   }
 
   async function loadSession() {
+    sessionLoad?.abort();
+    const request = new AbortController();
+    sessionLoad = request;
     try {
-      signedIn(await api.me());
+      const next = await api.me(request.signal);
+      if (!request.signal.aborted) signedIn(next);
     } catch (error) {
+      if (request.signal.aborted) return;
+      if (gateForError(error) === 'offline' && gate === 'ready') {
+        connection = 'error';
+        connectionDetail = error instanceof Error ? error.message : text.networkError;
+        return;
+      }
       me = null;
       gate = gateForError(error);
     }
   }
 
   function signedIn(next: Me) {
+    sessionLoad?.abort();
     me = next;
     notice = '';
     gate = gateForMe(next);
   }
 
   async function signOut() {
+    sessionLoad?.abort();
     try {
       await api.logout();
     } catch {
@@ -88,13 +105,20 @@
       gate = 'login';
     };
     sessionEvents.addEventListener('signed-out', lost);
+    const permissionsChanged = () => { void loadSession(); };
+    sessionEvents.addEventListener('permissions-changed', permissionsChanged);
     return () => {
       load?.abort();
+      sessionLoad?.abort();
       sessionEvents.removeEventListener('signed-out', lost);
+      sessionEvents.removeEventListener('permissions-changed', permissionsChanged);
     };
   });
 
   function navigate(path: string) {
+    if (location.pathname === path) { dialog?.close(); return; }
+    if (adminDirty && !window.confirm(`${text.access.leaveTitle}. ${text.access.leaveHint}`)) return;
+    adminDirty = false;
     dialog?.close();
     if (location.pathname !== path) history.pushState(null, '', path);
     pathname = location.pathname;
@@ -121,7 +145,17 @@
   }
 </script>
 
-<svelte:window onkeydown={keyboard} onpopstate={() => { pathname = location.pathname; }} />
+<svelte:window onkeydown={keyboard} onfocus={() => { if (gate === 'ready') void loadSession(); }}
+  onbeforeunload={(event) => { if (adminDirty) { event.preventDefault(); event.returnValue = ''; } }}
+  onpopstate={() => {
+    if (pathname === location.pathname) return;
+    if (adminDirty && !window.confirm(`${text.access.leaveTitle}. ${text.access.leaveHint}`)) {
+      history.pushState(null, '', pathname);
+      return;
+    }
+    adminDirty = false;
+    pathname = location.pathname;
+  }} />
 
 {#if gate === 'checking'}
 <p class="auth-checking" role="status">{text.checking}</p>
@@ -139,7 +173,7 @@
     </a>
     <nav aria-label={text.navigation}>
       <div class="nav-title" aria-hidden="true">{text.navigation}</div>
-      {#each sections as item (item.path)}
+      {#each visibleSections as item (item.path)}
         <a
           href={item.path}
           aria-current={current?.path === item.path ? 'page' : undefined}
@@ -189,6 +223,10 @@
 
     <main id="content" tabindex="-1" class="content" aria-labelledby="page-title">
       <h1 id="page-title" bind:this={heading} tabindex="-1">{title}</h1>
+      {#if current?.path === '/admin'}
+        {#if canAdmin && me}<Admin {me} onChanged={loadSession} onDirty={(value) => { adminDirty = value; }} />
+        {:else}<p role="status">{text.accessDenied}</p>{/if}
+      {:else}
       <div class="empty">
         <span class="empty-icon"><Icon name={current?.icon ?? 'missing'} size={30} /></span>
         {#if current}
@@ -197,6 +235,7 @@
           <a href={homePath} onclick={(event) => follow(event, homePath)}>{text.backToRegistry}</a>
         {/if}
       </div>
+      {/if}
     </main>
   </div>
 </div>
