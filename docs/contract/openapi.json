@@ -15,6 +15,46 @@
         "title": "AliasCreate",
         "type": "object"
       },
+      "BackupCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "BackupCreate",
+        "type": "object"
+      },
+      "BackupRestore": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "BackupRestore",
+        "type": "object"
+      },
       "DatasetCreate": {
         "additionalProperties": false,
         "properties": {
@@ -376,6 +416,32 @@
           "name"
         ],
         "title": "NameBody",
+        "type": "object"
+      },
+      "NetworkCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "network": {
+            "title": "Network",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          }
+        },
+        "required": [
+          "network"
+        ],
+        "title": "NetworkCreate",
         "type": "object"
       },
       "PasswordChange": {
@@ -1371,6 +1437,306 @@
           "Вход"
         ],
         "x-permission": "session"
+      }
+    },
+    "/api/v1/backups": {
+      "get": {
+        "operationId": "backups_list_backups",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Копии в папке копий сервера, от новых к старым.",
+        "tags": [
+          "Копии"
+        ],
+        "x-permission": "section.backups"
+      },
+      "post": {
+        "operationId": "backups_create_backup",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Сделать зашифрованную копию базы; пароль копии в базе не хранится.",
+        "tags": [
+          "Копии"
+        ],
+        "x-permission": "section.backups"
+      }
+    },
+    "/api/v1/backups/{name}/file": {
+      "get": {
+        "operationId": "backups_download",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Скачать файл копии; он зашифрован, как и лежит на сервере.",
+        "tags": [
+          "Копии"
+        ],
+        "x-permission": "section.backups"
+      }
+    },
+    "/api/v1/backups/{name}/restore": {
+      "post": {
+        "operationId": "backups_restore",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupRestore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Восстановить базу из копии; текущее состояние сначала уходит в защитную копию.",
+        "tags": [
+          "Копии"
+        ],
+        "x-permission": "section.backups"
       }
     },
     "/api/v1/datasets": {
@@ -4982,6 +5348,242 @@
           "ККС"
         ],
         "x-permission": "session"
+      }
+    },
+    "/api/v1/system/allowed-ips": {
+      "get": {
+        "operationId": "system_list_networks",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Разрешённые сети рабочих мест; пустой список — разрешены все.",
+        "tags": [
+          "Система"
+        ],
+        "x-permission": "section.admin"
+      },
+      "post": {
+        "operationId": "system_allow_network",
+        "parameters": [
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Добавить адрес или сеть; свой адрес из списка выпасть не может.",
+        "tags": [
+          "Система"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/system/allowed-ips/{id}": {
+      "delete": {
+        "operationId": "system_remove_network",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Выполнено, без тела ответа"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Убрать сеть из списка.",
+        "tags": [
+          "Система"
+        ],
+        "x-permission": "section.admin"
       }
     },
     "/api/v1/system/health": {

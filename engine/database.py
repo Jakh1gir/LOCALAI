@@ -148,6 +148,20 @@ class Database:
             conn.execute("ROLLBACK")
 
     @contextmanager
+    def exclusive(self) -> Iterator[sqlite3.Connection]:
+        """Соединение без открытой транзакции, пока другие потоки не пишут.
+
+        Нужно действию, которое заменяет базу целиком (восстановление из
+        копии): оно само управляет транзакциями, а запись из других потоков
+        этого процесса ждёт его окончания.
+        """
+        conn = self.connect()
+        if conn.in_transaction:
+            raise EngineError("nested_write", "Транзакция записи уже открыта")
+        with self._write_lock:
+            yield conn
+
+    @contextmanager
     def write(self, actor: Actor) -> Iterator[Tx]:
         """Транзакция записи: либо всё вместе с аудитом, либо ничего."""
         conn = self.connect()
