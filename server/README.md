@@ -20,8 +20,9 @@ python -m server --db localai.sqlite3
 | `schemas.py` | Тела запросов; лишние поля отклоняются |
 | `openapi.py` | Машинное описание API из кода: `python -m server.openapi` |
 | `admin.py` | Учётные записи из командной строки: первый администратор, сброс забытого пароля |
-| `localdb_import/` | Перенос базы Local_DB |
+| `localdb_import/` | Перенос базы Local_DB. Пробный прогон предлагает раскладку магнитом ККС для режимов-сигналов; `--magnet` применяет её, `--layout раскладка.json` — поправленную. Применённая раскладка повторяется при следующих переносах |
 | `localdb_export/` | Перенос выгрузки Local_DB в Excel с магнитом ККС: `python -m server.localdb_export выгрузка.xlsx --target localai.sqlite3` — пробный прогон на копии; `--apply` применяет одной транзакцией со страховочной копией; `--report отчёт.json` — полный отчёт |
+| `magnet_store.py` | Запись раскладки магнита: типы, поля, реестры, записи по уникальному ключу |
 | `xlsx.py` | Чтение листа Excel с заполнением объединённых ячеек |
 
 Контракт: [docs/contract/api-v1.md](../docs/contract/api-v1.md). Задачи: [docs/STATE.md](../docs/STATE.md).

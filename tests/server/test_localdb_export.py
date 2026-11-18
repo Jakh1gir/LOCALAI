@@ -116,10 +116,10 @@ def test_apply_lays_signals_on_devices_and_repeat_changes_nothing(tmp_path):
 
 
 def test_failed_rows_cancel_the_whole_transfer(tmp_path, monkeypatch):
-    from server.localdb_export import importer
+    from server import magnet_store
 
     target = tmp_path / "target.sqlite3"
-    original = importer.records.create
+    original = magnet_store.records.create
     calls = {"n": 0}
 
     def broken(tx, dataset_id, values, **kw):
@@ -130,7 +130,7 @@ def test_failed_rows_cancel_the_whole_transfer(tmp_path, monkeypatch):
             raise EngineError("value_invalid", "Сбой на третьей записи")
         return original(tx, dataset_id, values, **kw)
 
-    monkeypatch.setattr(importer.records, "create", broken)
+    monkeypatch.setattr(magnet_store.records, "create", broken)
     assert main([str(_book(tmp_path / "book.xlsx")), "--target", str(target), "--apply"]) == 2
     db = open_database(str(target))
     assert db.connect().execute("SELECT COUNT(*) FROM records").fetchone()[0] == 0

@@ -165,7 +165,7 @@ def plan_signals(rows: Iterable[tuple[int, Row]], layout: Layout, split: Split) 
         raise ValueError("Для таблицы сигналов нужен столбец кода сигнала")
     plan = SignalPlan(layout)
     rows = list(rows)
-    spare_words = _spare_words(rows, layout, split)
+    words = spare_words(rows, layout, split)
     ignored = layout.key_columns()
     channels: dict[str, int] = {}
     contacts: dict[tuple[str, str], int] = {}
@@ -175,7 +175,7 @@ def plan_signals(rows: Iterable[tuple[int, Row]], layout: Layout, split: Split) 
         if raw is None and not _has_data(row, ignored):
             plan.skipped.append(number)  # строка-заготовка: только ключ
             continue
-        item = _signal(number, row, raw, kks, layout, split, spare_words, plan.issues)
+        item = _signal(number, row, raw, kks, layout, split, words, plan.issues)
         plan.signals.append(item)
         if item.device:
             device = plan.devices.setdefault(
@@ -204,6 +204,30 @@ def plan_signals(rows: Iterable[tuple[int, Row]], layout: Layout, split: Split) 
             _add_cable(plan.cables, item, row, layout)
     _cable_places(plan.cables)
     return plan
+
+
+def attach(row: Row, layout: Layout, split: Split, words: set[str]) -> SignalRow | None:
+    """Одна строка: к какому аппарату притянута, кабель, канал. ``None`` — строка-заготовка.
+
+    Для переноса истории: каждая версия записи раскладывается по своим
+    значениям. Расхождения здесь не собираются — их показывает план.
+    """
+    if not layout.signal:
+        raise ValueError("Для таблицы сигналов нужен столбец кода сигнала")
+    raw = _text(row.get(layout.signal))
+    kks = _text(row.get(layout.kks)) if layout.kks else None
+    if raw is None and not _has_data(row, layout.key_columns()):
+        return None
+    return _signal(0, row, raw, kks, layout, split, words, [])
+
+
+def from_dict(data: dict[str, Any]) -> Layout:
+    """Раскладка из отчёта или файла решений; неизвестные ключи — ошибка."""
+    allowed = set(Layout().__dict__)
+    unknown = set(data) - allowed
+    if unknown:
+        raise ValueError(f"Неизвестные ключи раскладки: {', '.join(sorted(unknown))}")
+    return Layout(**data)
 
 
 def contact_text(row: Row, columns: list[str]) -> str | None:
@@ -304,13 +328,13 @@ def _signal(
     kks: str | None,
     layout: Layout,
     split: Split,
-    spare_words: set[str],
+    words: set[str],
     issues: list[Issue],
 ) -> SignalRow:
     cable = _text(row.get(layout.cable)) if layout.cable else None
     channel = channel_text(row, layout.channel)
     values = {name: value for name, value in row.items() if _text(value) is not None}
-    if raw is None or raw.casefold() in spare_words:
+    if raw is None or raw.casefold() in words:
         if kks:
             issues.append(Issue(number, "spare_with_kks", f"Резервный канал с ККС {kks}"))
         return SignalRow(number, "spare", None, kks, "kks" if kks else None, cable, channel, values)
@@ -338,7 +362,7 @@ def _signal(
     )
 
 
-def _spare_words(rows: list[tuple[int, Row]], layout: Layout, split: Split) -> set[str]:
+def spare_words(rows: list[tuple[int, Row]], layout: Layout, split: Split) -> set[str]:
     """Слова резерва: известные и любое значение без признака сигнала, повторённое без ККС."""
     words = set(SPARE_WORDS)
     repeats = Counter(

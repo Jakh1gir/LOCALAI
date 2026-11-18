@@ -17,24 +17,15 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from engine import Actor, EngineError, Tx, kks, kks_rules, links, magnet, records, structure, text
+from engine import Actor, EngineError, Tx, kks_rules, magnet, structure, text
 from engine.magnet import Layout
+from server.magnet_store import Counts, Store, cable_specs
 from server.xlsx import Sheet
 
 CONSOLE = Actor(None, "Перенос выгрузки Local_DB", "system")
 SERVICE = ("№",)
 MODE_HEADERS = ("режим бд", "режим", "mode")
 KIND_SIGNAL, KIND_SPARE = "Сигнал", "Резерв"
-
-
-@dataclass
-class _Counts:
-    created: int = 0
-    updated: int = 0
-    unchanged: int = 0
-
-    def to_dict(self) -> dict[str, int]:
-        return dict(self.__dict__)
 
 
 @dataclass
@@ -105,104 +96,17 @@ class _Writer:
     ) -> None:
         self.tx, self.site, self.mode, self.headers, self.layout = tx, site, mode, headers, layout
         self.report = report
-
-    def type_with(
-        self, name: str, specs: list[dict[str, Any]]
-    ) -> tuple[dict[str, Any], dict[str, str]]:
-        """Тип по названию и ключи его полей по названиям; недостающие поля создаются."""
-        found = next(
-            (
-                item
-                for item in structure.list_types(self.tx.conn)
-                if text.norm_name(item["name"]) == text.norm_name(name) and not item["archived_at"]
-            ),
-            None,
+        self.store = Store(tx, site, self._error)
+        self.type_with, self.dataset, self.upsert = (
+            self.store.type_with,
+            self.store.dataset,
+            self.store.upsert,
         )
-        kind = found or structure.create_type(self.tx, name)
-        schema = structure.load_schema(self.tx.conn, kind["id"])
-        keys: dict[str, str] = {}
-        for spec in specs:
-            existing = next(
-                (
-                    f
-                    for f in schema.active()
-                    if text.norm_name(f.name) == text.norm_name(spec["name"])
-                ),
-                None,
-            )
-            if existing is None:
-                options = {key: value for key, value in spec.items() if key not in ("name", "kind")}
-                if "contact_for" in options:
-                    options["contact_for"] = keys[options["contact_for"]]
-                made = structure.add_field(
-                    self.tx, kind["id"], spec["name"], spec["kind"], **options
-                )
-                keys[spec["name"]] = made["key"]
-            elif existing.kind != spec["kind"]:
-                raise EngineError(
-                    "export_field_kind",
-                    f"В типе «{name}» поле «{spec['name']}» уже есть, но другого вида ({existing.kind})",
-                )
-            else:
-                keys[spec["name"]] = existing.key
-        return kind, keys
 
-    def dataset(self, name: str, type_id: str) -> dict[str, Any]:
-        for item in structure.list_datasets(self.tx.conn, site_id=self.site["id"]):
-            if text.norm_name(item["name"]) == text.norm_name(name):
-                if item["type_id"] != type_id:
-                    raise EngineError("export_dataset_type", f"Реестр «{name}» другого типа")
-                return item
-        return structure.create_dataset(self.tx, self.site["id"], type_id, name)
-
-    def upsert(
-        self,
-        dataset: dict[str, Any],
-        schema: structure.TypeSchema,
-        key: str,
-        values: dict[str, Any],
-        counts: _Counts,
-        row: int,
-    ) -> str | None:
-        """Создать запись или дополнить найденную по уникальному ключу."""
-        values = {name: value for name, value in values.items() if value not in (None, "")}
-        try:
-            with self.tx.savepoint():
-                found = self._find(dataset, schema.by_key(key), values.get(key))
-                if found is None:
-                    made = records.create(self.tx, dataset["id"], values)
-                    counts.created += 1
-                    return made["id"]
-                changed = records.update(self.tx, found["id"], values, found["version"])
-                if changed["version"] == found["version"]:
-                    counts.unchanged += 1
-                else:
-                    counts.updated += 1
-                return found["id"]
-        except EngineError as error:
-            self.report["write_errors"].append(
-                {"mode": self.mode, "row": row, "code": error.code, "message": error.message}
-            )
-            return None
-
-    def _find(
-        self, dataset: dict[str, Any], key: structure.Field | None, value: Any
-    ) -> dict[str, Any] | None:
-        if key is None or value in (None, ""):
-            return None
-        if key.kind == "kks":
-            found = kks.resolve(self.tx.conn, self.site["id"], str(value))
-            if found is None:
-                return None
-            norm = found["id"]
-        else:
-            norm = links.unique_value(key, str(value))
-        row = self.tx.conn.execute(
-            "SELECT r.id, r.version FROM record_unique u JOIN records r ON r.seq = u.record_seq"
-            " WHERE u.dataset_seq = ? AND u.field_key = ? AND u.value = ?",
-            (structure.load_dataset(self.tx.conn, dataset["id"])["seq"], key.key, norm),
-        ).fetchone()
-        return dict(row) if row else None
+    def _error(self, row: int, error: EngineError) -> None:
+        self.report["write_errors"].append(
+            {"mode": self.mode, "row": row, "code": error.code, "message": error.message}
+        )
 
     def others(self, used: set[str]) -> list[str]:
         """Остальные столбцы — текстовые поля: перенос без потерь."""
@@ -231,7 +135,7 @@ class _Devices(_Writer):
         kind, keys = self.type_with(self.mode, specs)
         dataset = self.dataset(self.mode, kind["id"])
         schema = structure.load_schema(self.tx.conn, kind["id"])
-        counts = _Counts()
+        counts = Counts()
         for number, row in plan.rows.values():
             values = {keys[name]: _shown(row.get(name)) for name in [kks_column, *columns]}
             self.upsert(dataset, schema, keys[kks_column], values, counts, number)
@@ -250,19 +154,10 @@ class _Signals(_Writer):
     def load(self, rows: list[tuple[int, dict[str, Any]]]) -> dict[str, Any]:
         lay = self.layout
         plan = magnet.plan_signals(rows, lay, _splitter(self.tx))
-        cable_type, cable_keys = self.type_with(
-            "Кабель",
-            [
-                {"name": "Номер кабеля", "kind": "text", "unique": True},
-                *(
-                    {"name": place, "kind": "kks", "kks_role": role}
-                    for place, role in lay.places.items()
-                ),
-            ],
-        )
+        cable_type, cable_keys = self.type_with("Кабель", cable_specs(lay.places))
         cables = self.dataset(f"{self.mode} — кабели", cable_type["id"])
         cable_schema = structure.load_schema(self.tx.conn, cable_type["id"])
-        cable_counts = _Counts()
+        cable_counts = Counts()
         for cable in plan.cables.values():
             values = {cable_keys["Номер кабеля"]: cable["number"]}
             values.update({cable_keys[place]: code for place, code in cable["places"].items()})
@@ -291,7 +186,7 @@ class _Signals(_Writer):
         signals = self.dataset(f"{self.mode} — сигналы", signal_type["id"])
         schema = structure.load_schema(self.tx.conn, signal_type["id"])
         key = keys["Канал ввода-вывода"] if lay.channel else keys["Код сигнала"]
-        counts = _Counts()
+        counts = Counts()
         skipped_spares = 0
         for item in plan.signals:
             if item.kind == "spare" and not item.channel:

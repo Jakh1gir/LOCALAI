@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from server.localdb_import.convert import (
     loose_kks,
     moment,
 )
+from server.localdb_import.magnet_pass import MagnetPass, current_row, history_row
 from server.localdb_import.reconcile import Reconciler, Stats
 from server.localdb_import.report import Issues
 from server.localdb_import.source import Source, SourceField, SourceRecord, SourceTable
@@ -46,6 +48,8 @@ class Decisions:
     kks_fields: tuple[str, ...] = ("kks",)
     mode_field: str = "database_mode"
     include_audit: bool = True
+    magnet: bool = False  # применить предложенную раскладку магнитом ККС (MIG-16)
+    layouts: dict[str, dict[str, Any]] = field(default_factory=dict)  # реестр → раскладка
 
 
 class _Stop(Exception):
@@ -140,8 +144,19 @@ class _Job:
         self.reconciler = Reconciler(
             self.tx, self.site["id"], self.mapper.source_texts, self.final_text
         )
+        self.magnet = MagnetPass(
+            self.tx,
+            self.site,
+            self.mapper,
+            self.issues,
+            apply=self.decisions.magnet,
+            layouts=self.decisions.layouts,
+            previous=self._previous_layouts(),
+        )
         for table in self.source.tables:
             self._table(table)
+        self.reconciler.ignored = self.magnet.ignored
+        self.report["magnet"] = self.magnet.summary()
         for dataset_id in sorted(self.to_archive):
             if structure.get_dataset(self.tx.conn, dataset_id)["archived_at"] is None:
                 structure.archive_dataset(self.tx, dataset_id)
@@ -159,7 +174,16 @@ class _Job:
         run_id = text.new_id()
         summary = {
             key: self.report[key]
-            for key in ("source", "site", "structure", "datasets", "kks", "audit", "reconciliation")
+            for key in (
+                "source",
+                "site",
+                "structure",
+                "datasets",
+                "kks",
+                "magnet",
+                "audit",
+                "reconciliation",
+            )
             if key in self.report
         }
         self.tx.conn.execute(
@@ -226,6 +250,7 @@ class _Job:
         plans = self._fields(table, type_id)
         datasets = self._datasets(table, type_id, mode)
         by_code = {plan.source.code: plan for plan in plans.values()}
+        self._prepare_magnet(table, type_id, mode, plans, datasets)
         for batch in self.source.records(table.id):
             fresh: dict[str, list[records.LoadedRecord]] = {}
             for record in batch:
@@ -255,19 +280,22 @@ class _Job:
             return
         if verdict == "unchanged":
             stats.records_unchanged += 1
+            texts = self.mapper.source_texts
+            self.magnet.note_unchanged(dataset_id, record.uuid, current_row(record, plans, texts))
             self.reconciler.remember(stats, record, plans, kept_rows, final)
             return
         if verdict == "new":
-            loaded = self._record(record, plans, by_code)
+            loaded = self._record(record, plans, by_code, dataset_id)
             if loaded is not None:
                 fresh.setdefault(dataset_id, []).append(loaded)
                 stats.records_new += 1
                 stats.versions += len(loaded.versions)
                 self.reconciler.remember(stats, record, plans, len(loaded.versions), final)
             return
+        since = self.magnet.since(dataset_id, record.uuid)
         try:
             with self.tx.savepoint():  # запись дописывается целиком или остаётся прежней
-                loaded = self._record(record, plans, by_code)
+                loaded = self._record(record, plans, by_code, dataset_id, since)
                 added = records.extend(self.tx, loaded) if loaded is not None else 0
         except EngineError as error:
             self.mapper.forget()
@@ -307,7 +335,12 @@ class _Job:
         return ("unchanged" if version == final else "extend"), row["kept"]
 
     def _record(
-        self, record: SourceRecord, plans: dict[int, FieldPlan], by_code: dict[str, FieldPlan]
+        self,
+        record: SourceRecord,
+        plans: dict[int, FieldPlan],
+        by_code: dict[str, FieldPlan],
+        dataset_id: str,
+        since: int = 0,
     ) -> records.LoadedRecord | None:
         try:
             current = self.mapper.current_doc(record, plans, self.value_dictionary)
@@ -319,8 +352,24 @@ class _Job:
                 {"message": error.message, **error.details},
             )
             return None
+        texts = self.mapper.source_texts
+        current.update(
+            self.magnet.values(dataset_id, current_row(record, plans, texts), current=True)
+        )
         snapshots = [
-            (version, self.mapper.history_doc(version.values, by_code))
+            (
+                version,
+                {
+                    **self.mapper.history_doc(version.values, by_code),
+                    **(
+                        self.magnet.values(
+                            dataset_id, history_row(version.values, by_code), current=False
+                        )
+                        if version.version >= since
+                        else {}
+                    ),
+                },
+            )
             for version in record.versions
         ]
         return build_versions(record, current, snapshots, self.issues)
@@ -551,6 +600,20 @@ class _Job:
     ) -> str:
         if mode is None or not datasets:
             return _uuid5(f"localdb:{table.uuid}")
+        found = self._mode_dataset(record, mode, datasets)
+        if found is not None:
+            return found
+        self.issues.add(
+            "warning",
+            "record_without_mode",
+            "Записи без режима; перенесены в реестр «Без режима»",
+            record.uuid,
+        )
+        return self._dataset(type_id, _uuid5(f"localdb:{table.uuid}:none"), "Без режима")
+
+    def _mode_dataset(
+        self, record: SourceRecord, mode: SourceField, datasets: dict[int, str]
+    ) -> str | None:
         for field_id, _ordinal, raw, value_id in record.values:
             if field_id != mode.id:
                 continue
@@ -561,13 +624,31 @@ class _Job:
                 for value in self.source.dictionaries[mode.dictionary_id or 0].values:
                     if value.id in datasets and text.norm_name(value.canonical) == norm:
                         return datasets[value.id]
-        self.issues.add(
-            "warning",
-            "record_without_mode",
-            "Записи без режима; перенесены в реестр «Без режима»",
-            record.uuid,
-        )
-        return self._dataset(type_id, _uuid5(f"localdb:{table.uuid}:none"), "Без режима")
+        return None
+
+    def _prepare_magnet(
+        self,
+        table: SourceTable,
+        type_id: str,
+        mode: SourceField | None,
+        plans: dict[int, FieldPlan],
+        datasets: dict[int, str],
+    ) -> None:
+        """Текущие значения записей по реестрам — магниту для предложения раскладки."""
+        default = _uuid5(f"localdb:{table.uuid}")
+        rows: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        for batch in self.source.records(table.id):
+            for record in batch:
+                dataset_id = (
+                    default
+                    if mode is None or not datasets
+                    else self._mode_dataset(record, mode, datasets)
+                )
+                if dataset_id is not None:
+                    row = current_row(record, plans, self.mapper.source_texts)
+                    rows.setdefault(dataset_id, []).append((record.uuid, row))
+        names = {dataset_id: self.stats[dataset_id].name for dataset_id in rows}
+        self.magnet.prepare(type_id, plans, rows, names)
 
     # ККС и журнал -------------------------------------------------------------
 
@@ -640,6 +721,21 @@ class _Job:
         )
         self.audit_cursor = cursor
         return len(rows)
+
+    def _previous_layouts(self) -> dict[str, dict[str, Any]]:
+        """Раскладки магнита, применённые прошлым переносом этого источника."""
+        row = self.tx.conn.execute(
+            "SELECT report FROM import_runs WHERE source_kind = ? AND source_id = ?"
+            " ORDER BY finished_at DESC LIMIT 1",
+            (SOURCE_KIND, self._source_id()),
+        ).fetchone()
+        if row is None:
+            return {}
+        return {
+            item["dataset"]: item["layout"]
+            for item in json.loads(row["report"]).get("magnet", [])
+            if item.get("applied")
+        }
 
     def _source_id(self) -> str:
         return self.source.database_uuid or f"path:{self.source.path.resolve()}"
