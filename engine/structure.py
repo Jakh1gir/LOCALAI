@@ -13,11 +13,11 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
-from engine import text
+from engine import field_rules, text
 from engine.database import Tx
 from engine.errors import CONFLICT, EngineError, not_found
 
-FIELD_KINDS = ("text", "integer", "number", "boolean", "date", "choice", "kks")
+FIELD_KINDS = ("text", "integer", "number", "boolean", "date", "choice", "kks", "record")
 KKS_ROLES = ("object", "signal", "route_start", "route_end", "route_via", "related")
 INPUT_MODES = ("strict", "suggest")
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -42,6 +42,9 @@ class Field:
     kks_role: str | None
     position: int
     archived_at: str | None
+    unique_values: bool = False
+    target_type_id: str | None = None  # вид record: тип записей, на которые ссылается поле
+    contact_for: str | None = None  # текстовое поле — контакт связи поля с этим ключом
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -153,6 +156,9 @@ def add_field(
     dictionary_id: str | None = None,
     input_mode: str | None = None,
     kks_role: str | None = None,
+    unique: bool = False,
+    target_type_id: str | None = None,
+    contact_for: str | None = None,
     entity_id: str | None = None,
 ) -> dict[str, Any]:
     owner = _get(tx.conn, "types", "type", type_id)
@@ -166,6 +172,9 @@ def add_field(
     dictionary_id, input_mode, kks_role = _kind_options(
         tx.conn, kind, dictionary_id, input_mode, kks_role
     )
+    target_type_id = field_rules.target_type(tx.conn, kind, target_type_id, sortable)
+    field_rules.check_unique(kind, multiple, unique)
+    contact_for = field_rules.check_contact(tx.conn, type_id, kind, contact_for)
     _check_field_name(tx.conn, type_id, shown, None)
     key = _field_key(tx.conn, owner, key)
     position = tx.conn.execute(
@@ -175,7 +184,8 @@ def add_field(
     tx.conn.execute(
         "INSERT INTO fields (id, type_id, key, name, name_norm, kind, multiple, required,"
         " searchable, filterable, sortable, dictionary_id, input_mode, kks_role, position,"
-        " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " created_at, updated_at, unique_values, target_type_id, contact_for)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             field_id,
             type_id,
@@ -194,6 +204,9 @@ def add_field(
             position,
             tx.now,
             tx.now,
+            int(unique),
+            target_type_id,
+            contact_for,
         ),
     )
     _bump_schema(tx, type_id)
@@ -205,7 +218,7 @@ def add_field(
 def update_field(tx: Tx, field_id: str, **changes: Any) -> dict[str, Any]:
     """Меняет название, флаги, порядок и режим ввода. Вид и ключ поля неизменны."""
     field = get_field(tx.conn, field_id)
-    allowed = {"name", "position", "input_mode", *_FIELD_FLAGS}
+    allowed = {"name", "position", "input_mode", "unique", "contact_for", *_FIELD_FLAGS}
     unknown = set(changes) - allowed
     empty = sorted(key for key, value in changes.items() if value is None)
     if empty and not unknown:
@@ -234,11 +247,24 @@ def update_field(tx: Tx, field_id: str, **changes: Any) -> dict[str, Any]:
         if field.kind != "choice" or changes["input_mode"] not in INPUT_MODES:
             raise EngineError("field_input_mode", "Режим ввода задаётся только для списка")
         values["input_mode"] = changes["input_mode"]
+    if "unique" in changes and bool(changes["unique"]) != field.unique_values:
+        field_rules.check_unique(field.kind, field.multiple, bool(changes["unique"]))
+        values["unique_values"] = int(bool(changes["unique"]))
+    if "contact_for" in changes and changes["contact_for"] != field.contact_for:
+        values["contact_for"] = field_rules.check_contact(
+            tx.conn, field.type_id, field.kind, changes["contact_for"] or None, field.key
+        )
+    if values.get("sortable") and field.kind == "record":
+        raise EngineError("field_sort_record", "По ссылке на запись сортировать нельзя")
     if not values:
         return field.to_dict()
     _update(tx, "fields", field_id, values)
     _bump_schema(tx, field.type_id)
     sync_field_index(tx.conn, field.key)
+    if "unique_values" in values:
+        from engine import links  # links опирается на structure: импорт здесь
+
+        links.rebuild_unique(tx.conn, get_field(tx.conn, field_id))
     if "searchable" in values and bool(values["searchable"]) != field.searchable:
         _fulltext().reindex_type(tx.conn, field.type_id)
     tx.audit("field.update", "field", field_id, details={"changed": sorted(values)})
@@ -538,6 +564,9 @@ def _field(row: sqlite3.Row) -> Field:
         kks_role=row["kks_role"],
         position=row["position"],
         archived_at=row["archived_at"],
+        unique_values=bool(row["unique_values"]),
+        target_type_id=row["target_type_id"],
+        contact_for=row["contact_for"],
     )
 
 

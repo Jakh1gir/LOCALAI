@@ -80,8 +80,18 @@ def purge_many(tx: Tx, dataset_id: str, items: list[dict[str, Any]]) -> dict[str
         except EngineError as error:
             error.details = {**error.details, "row": number, "record_id": item["id"]}
             raise
+        referenced = tx.conn.execute(
+            "SELECT 1 FROM record_links WHERE target_seq = ? LIMIT 1", (row["seq"],)
+        ).fetchone()
+        if referenced:
+            raise EngineError(
+                "record_referenced",
+                "На запись ссылаются другие записи; сначала уберите ссылки",
+                status=CONFLICT,
+                details={"row": number, "record_id": item["id"]},
+            )
         tx.conn.execute("DELETE FROM record_fts WHERE rowid = ?", (row["seq"],))
-        # История и связи ККС удаляются каскадом внешних ключей.
+        # История, связи ККС, ссылки и уникальные значения удаляются каскадом.
         tx.conn.execute("DELETE FROM records WHERE seq = ?", (row["seq"],))
         tx.audit(
             "record.purge",

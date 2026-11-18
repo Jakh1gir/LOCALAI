@@ -183,8 +183,19 @@ def card(conn: sqlite3.Connection, kks_id: str) -> dict[str, Any]:
         " GROUP BY d.id, l.role ORDER BY d.name_norm, l.role",
         (kks_id,),
     ).fetchall()
+    # Записи, на которые ссылаются записи объекта: кабели, по которым идут его сигналы.
+    via_links = conn.execute(
+        "SELECT d.id AS dataset_id, COUNT(DISTINCT t.seq) AS records"
+        " FROM record_kks_links l JOIN records r ON r.seq = l.record_seq"
+        " JOIN record_links rl ON rl.record_seq = l.record_seq"
+        " JOIN records t ON t.seq = rl.target_seq JOIN datasets d ON d.seq = t.dataset_seq"
+        " WHERE l.kks_id = ? AND r.archived_at IS NULL AND t.archived_at IS NULL"
+        " GROUP BY d.id ORDER BY d.name_norm",
+        (kks_id,),
+    ).fetchall()
     found["aliases"] = [dict(row) for row in aliases]
     found["usage"] = [dict(row) for row in usage]
+    found["via_links"] = [dict(row) for row in via_links]
     return found
 
 

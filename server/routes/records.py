@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from engine import EngineError, batch, facets, query, records, structure
+from engine import EngineError, batch, facets, links, query, records, structure
 from engine.errors import FORBIDDEN
 from server import schemas
 from server.api import Call, Endpoint
@@ -83,9 +83,21 @@ def create_record(call: Call) -> dict[str, Any]:
 
 
 def get_record(call: Call) -> dict[str, Any]:
-    """Запись и названия для её ID."""
+    """Запись, названия для её ID и записи, которые на неё ссылаются (DATA-13)."""
     record = _shown(call, records.get(call.conn, call.params["id"]))
-    return {"record": record, "refs": query.refs(call.conn, record["dataset_id"], [record["doc"]])}
+    seq = call.conn.execute("SELECT seq FROM records WHERE id = ?", (record["id"],)).fetchone()[0]
+    backlinks = [
+        item
+        for item in links.backlinks(call.conn, seq)
+        if call.access.can(item["dataset_id"], "view")
+        and item["field_key"] not in _hidden(call, item["dataset_id"])
+    ]
+    return {
+        "record": record,
+        "refs": query.refs(call.conn, record["dataset_id"], [record["doc"]]),
+        "backlinks": backlinks,
+        "backlink_refs": links.labels(call.conn, {item["record_id"] for item in backlinks}),
+    }
 
 
 def update_record(call: Call) -> dict[str, Any]:

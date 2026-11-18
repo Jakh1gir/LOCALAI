@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from engine import EngineError, kks, structure
+from engine import EngineError, kks, kks_rules, structure
 from engine.errors import NOT_FOUND
 from server import schemas
 from server.api import Call, Endpoint
@@ -24,11 +24,11 @@ def search(call: Call) -> dict[str, Any]:
 
 
 def resolve(call: Call) -> dict[str, Any]:
-    """Объект по коду или псевдониму."""
+    """Объект по коду, псевдониму или коду сигнала (``via: "signal"``)."""
     code = call.query.get("code", "")
     if not code.strip():
         raise EngineError("request_invalid", "Нужен параметр code", field="code")
-    found = kks.resolve(call.conn, call.params["id"], code)
+    found = kks_rules.resolve(call.conn, call.params["id"], code)
     if found is None:
         raise EngineError(
             "kks_not_found", f"Код ККС «{code.strip()}» не найден на площадке", status=NOT_FOUND
@@ -47,7 +47,21 @@ def card(call: Call) -> dict[str, Any]:
     found["usage"] = [
         item for item in found["usage"] if call.access.can(item["dataset_id"], "view")
     ]
+    found["via_links"] = [
+        item for item in found["via_links"] if call.access.can(item["dataset_id"], "view")
+    ]
     return found
+
+
+def get_rules(call: Call) -> dict[str, Any]:
+    """Правило кода станции: признак сигнала в конце кода и пример разбора."""
+    return {**kks_rules.get_rule(call.conn), "example": kks_rules.example(call.conn)}
+
+
+def set_rules(call: Call) -> dict[str, Any]:
+    """Изменить правило признака сигнала (DATA-16)."""
+    kks_rules.set_rule(call.tx, call.body.signal_pattern)
+    return {**kks_rules.get_rule(call.tx.conn), "example": kks_rules.example(call.tx.conn)}
 
 
 def update(call: Call) -> dict[str, Any]:
@@ -79,6 +93,8 @@ ENDPOINTS = [
     _e("GET", "/sites/{id}/kks/search", search, READ, query=("q", "limit")),
     _e("GET", "/sites/{id}/kks/resolve", resolve, READ, query=("code",)),
     _e("POST", "/sites/{id}/kks", create, WRITE, body=schemas.KksCreate, status=201),
+    _e("GET", "/kks/rules", get_rules, READ),
+    _e("PUT", "/kks/rules", set_rules, "section.structure", body=schemas.KksRules),
     _e("GET", "/kks/{id}", card, READ),
     _e("PATCH", "/kks/{id}", update, WRITE, body=schemas.KksPatch),
     _e("POST", "/kks/{id}/aliases", add_alias, WRITE, body=schemas.AliasCreate, status=201),

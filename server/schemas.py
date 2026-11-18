@@ -22,7 +22,7 @@ class TypeCreate(Body):
 
 class FieldCreate(Body):
     name: str
-    kind: Literal["text", "integer", "number", "boolean", "date", "choice", "kks"]
+    kind: Literal["text", "integer", "number", "boolean", "date", "choice", "kks", "record"]
     key: str | None = None
     multiple: bool = False
     required: bool = False
@@ -34,6 +34,9 @@ class FieldCreate(Body):
     kks_role: (
         Literal["object", "signal", "route_start", "route_end", "route_via", "related"] | None
     ) = None
+    unique: bool = False
+    target_type_id: str | None = None
+    contact_for: str | None = None
 
 
 class FieldPatch(Body):
@@ -44,6 +47,8 @@ class FieldPatch(Body):
     filterable: bool | None = None
     sortable: bool | None = None
     input_mode: Literal["strict", "suggest"] | None = None
+    unique: bool | None = None
+    contact_for: str | None = None  # пустая строка снимает связь с полем
 
 
 class DatasetCreate(Body):
@@ -193,3 +198,7 @@ class BackupRestore(Body):
 class NetworkCreate(Body):
     network: str
     note: str | None = None
+
+
+class KksRules(Body):
+    signal_pattern: str

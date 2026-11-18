@@ -74,6 +74,9 @@ def add_field(call: Call) -> dict[str, Any]:
         dictionary_id=body.dictionary_id,
         input_mode=body.input_mode,
         kks_role=body.kks_role,
+        unique=body.unique,
+        target_type_id=body.target_type_id,
+        contact_for=body.contact_for,
     )
 
 

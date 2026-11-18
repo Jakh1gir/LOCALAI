@@ -66,8 +66,8 @@ def _shown(kind: str, item: Any, labels: Labels) -> list[str]:
     if kind == "number" and isinstance(item, float):
         shown = repr(item)
         return [shown, shown.replace(".", ",")]
-    if kind == "boolean":
-        return []
+    if kind in ("boolean", "record"):
+        return []  # ссылка ищется по записи-цели, UUID в тексте поиска не нужен
     return [str(item)]
 
 

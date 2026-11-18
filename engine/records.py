@@ -12,7 +12,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
-from engine import fulltext, structure, text
+from engine import fulltext, links, structure, text
 from engine.database import Tx, dumps
 from engine.errors import CONFLICT, NOT_FOUND, EngineError, not_found
 from engine.validation import Normalizer, coerce_scalar
@@ -104,6 +104,18 @@ def set_archived(tx: Tx, record_id: str, archived: bool, expected_version: int) 
         "UPDATE records SET archived_at = ?, version = ?, updated_at = ? WHERE seq = ?",
         (tx.now if archived else None, version, tx.now, row["seq"]),
     )
+    # Запись в архиве не держит уникальное значение; при возврате оно снова
+    # должно быть свободно.
+    writer = _Writer(tx, row["dataset_id"], allow_archived=True)
+    if writer.linked:
+        links.sync_unique(
+            tx.conn,
+            writer.schema,
+            writer.dataset["seq"],
+            row["seq"],
+            json.loads(row["doc"]),
+            active=not archived,
+        )
     _add_version(tx, row["seq"], version, op, {})
     tx.audit(f"record.{op}", "record", record_id, dataset_id=row["dataset_id"])
     return get(tx.conn, record_id)
@@ -372,12 +384,24 @@ class _Writer:
         )
         self.labels = fulltext.Labels(tx.conn)
         self.kks_fields = [field for field in self.schema.fields if field.kind == "kks"]
+        self.linked = {
+            field.key
+            for field in self.schema.fields
+            if field.kind == "record" or field.unique_values
+        }
         self._known: dict[str, set[str]] = {}
 
-    def index(self, seq: int, doc: dict[str, Any]) -> None:
-        """Связи ККС и строка поиска для записи, у которой их ещё нет."""
+    def index(self, seq: int, doc: dict[str, Any], *, active: bool = True) -> None:
+        """Связи, уникальные значения и строка поиска для записи, у которой их ещё нет."""
         self._links(seq, doc)
+        self._record_links(seq, doc, active=active)
         fulltext.write(self.tx.conn, seq, fulltext.record_text(doc, self.schema, self.labels))
+
+    def _record_links(self, seq: int, doc: dict[str, Any], *, active: bool) -> None:
+        if not self.linked:
+            return
+        links.sync_links(self.tx.conn, self.schema, seq, doc)
+        links.sync_unique(self.tx.conn, self.schema, self.dataset["seq"], seq, doc, active=active)
 
     def check_loaded(self, item: LoadedRecord) -> None:
         """Проверка загружаемой записи: ID, версии, ключи и виды значений."""
@@ -422,6 +446,11 @@ class _Writer:
     def _valid(self, field: structure.Field, value: Any) -> bool:
         if field.kind in ("choice", "kks"):
             return isinstance(value, str) and value in self._ids(field)
+        if field.kind == "record":
+            try:
+                return links.resolve(self.tx.conn, field, self.dataset["site_id"], value) == value
+            except EngineError:
+                return False
         try:
             coerced = coerce_scalar(field.kind, value, field.key)
         except EngineError:
@@ -490,6 +519,8 @@ class _Writer:
         if any(field.key in diff for field in self.kks_fields):
             tx.conn.execute("DELETE FROM record_kks_links WHERE record_seq = ?", (row["seq"],))
             self._links(row["seq"], doc)
+        if self.linked & set(diff):
+            self._record_links(row["seq"], doc, active=row["archived_at"] is None)
         fulltext.write(tx.conn, row["seq"], fulltext.record_text(doc, self.schema, self.labels))
 
     def archived_field(self, key: str) -> bool:

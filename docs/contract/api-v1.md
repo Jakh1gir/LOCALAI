@@ -153,7 +153,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | `PATCH /types/{id}` | `{name}` | тип |
 | `POST /types/{id}/archive` | — | — ; отклоняется, пока у типа есть действующие реестры |
 | `POST /types/{id}/fields` | поле, см. ниже | поле |
-| `PATCH /fields/{id}` | `{name?, position?, required?, searchable?, filterable?, sortable?, input_mode?}` | поле |
+| `PATCH /fields/{id}` | `{name?, position?, required?, searchable?, filterable?, sortable?, input_mode?, unique?, contact_for?}` | поле |
 | `POST /fields/{id}/archive`, `/restore` | — | поле |
 | `GET /datasets?site_id=&type_id=` | — | список реестров |
 | `POST /datasets` | `{site_id, type_id, name}` | реестр |
@@ -181,11 +181,18 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   "sortable": false,
   "dictionary_id": "…",
   "input_mode": "suggest",
-  "kks_role": null
+  "kks_role": null,
+  "unique": false,
+  "target_type_id": null,
+  "contact_for": null
 }
 ```
 
-`kind` — `text`, `integer`, `number`, `boolean`, `date`, `choice`, `kks`. `key` можно не задавать: сервер выдаст `f1`, `f2`, …; заданный ключ — латинские строчные буквы, цифры и `_`, до 32 символов. `dictionary_id` и `input_mode` нужны только для `choice`, `kks_role` — только для `kks`. Вид, ключ и `multiple` после создания не меняются.
+`kind` — `text`, `integer`, `number`, `boolean`, `date`, `choice`, `kks`, `record`. `key` можно не задавать: сервер выдаст `f1`, `f2`, …; заданный ключ — латинские строчные буквы, цифры и `_`, до 32 символов. `dictionary_id` и `input_mode` нужны только для `choice`, `kks_role` — только для `kks`, `target_type_id` — только для `record`. Вид, ключ, `multiple` и `target_type_id` после создания не меняются. В ответе поле несёт `unique_values`, `target_type_id`, `contact_for`.
+
+- **`unique`** (DATA-12) — значение не повторяется среди действующих записей реестра. Текст сравнивается без учёта регистра и «ё», ККС — по объекту. Повтор — `409 value_not_unique`, в `details.record_id` — запись, у которой значение уже есть. Только для одного значения вида `text`, `integer`, `number`, `date`, `kks`. Включение у поля с повторами — `409 unique_has_duplicates`. Запись в архиве значение не держит; при её возврате значение должно быть свободно.
+- **`record`** (DATA-13) — ссылка на запись типа `target_type_id` на той же площадке. Значение при записи — `{"id": "<UUID>"}`, UUID или значение уникального поля записи-цели: `"cable": "5011"` находит кабель по номеру. Не найдено — `400 record_link_missing`; подходит несколько — `400 record_link_ambiguous`; цель в архиве — `400 record_link_archived`. Сортировать по ссылке нельзя. Запись, на которую ссылаются, окончательно не удаляется — `409 record_referenced`.
+- **`contact_for`** (DATA-14) — у текстового поля: ключ поля `kks` или `record` того же типа. Значение подписывает связь этого поля в графе: клемма, жила, вход блока. У многозначных полей пары берутся по порядку значений.
 
 Объекты структуры в ответах:
 
@@ -205,7 +212,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | `POST /datasets/{id}/records/batch-update` | `{items: [{id, expected_version}], values}` | `{changed, items: [{id, version}]}` |
 | `POST /datasets/{id}/records/purge` | `{items: [{id, expected_version}]}` | `{purged}` |
 | `POST /datasets/{id}/records` | `{values}` | запись, `201` |
-| `GET /records/{id}` | — | `{record, refs}` |
+| `GET /records/{id}` | — | `{record, refs, backlinks, backlink_refs}`; `backlinks` — до 200 записей видимых реестров, которые ссылаются на эту: `[{record_id, dataset_id, field_key}]` |
 | `PATCH /records/{id}` | `{expected_version, values}` | запись |
 | `POST /records/{id}/archive`, `/restore` | `{expected_version}` | запись |
 | `GET /records/{id}/history` | — | список версий от новой к старой |
@@ -250,16 +257,30 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | Метод и путь | Тело запроса | Ответ |
 | --- | --- | --- |
 | `GET /sites/{id}/kks/search?q=&limit=` | — | до 50 объектов; сначала коды, начинающиеся с `q`, затем остальные совпадения и псевдонимы |
-| `GET /sites/{id}/kks/resolve?code=` | — | объект и `via`: `code` или `alias`; `404`, если не найден |
+| `GET /sites/{id}/kks/resolve?code=` | — | объект и `via`: `code`, `alias` или `signal` (код сигнала: тогда ещё `signal` и `signal_code`); `404`, если не найден |
+| `GET /kks/rules` | — | `{signal_pattern, updated_at, example}` — правило кода станции и пример разбора |
+| `PUT /kks/rules` | `{signal_pattern}` | то же; право `section.structure` |
 | `POST /sites/{id}/kks` | `{code, name?}` | объект |
-| `GET /kks/{id}` | — | карточка: объект, `aliases`, `usage` |
+| `GET /kks/{id}` | — | карточка: объект, `aliases`, `usage`, `via_links` |
 | `PATCH /kks/{id}` | `{code?, name?, archived?}` | объект |
 | `POST /kks/{id}/aliases` | `{alias}` | псевдоним |
 | `DELETE /kks-aliases/{id}` | — | — |
 
 - Смена `code` — переименование: UUID и связи сохраняются, прежний код становится псевдонимом. Занятый код — `409 kks_code_taken` с `details.kks_id` владельца.
-- `usage` в карточке — число связанных действующих записей по реестрам и ролям: `[{"dataset_id", "role", "records"}]`.
+- `usage` в карточке — число связанных действующих записей по реестрам и ролям: `[{"dataset_id", "role", "records"}]`. `via_links` — записи на шаг дальше: на них ссылаются записи объекта (кабели, по которым идут его сигналы), `[{"dataset_id", "records"}]`. Оба списка — только по реестрам, видимым роли.
+- **Код сигнала** (DATA-16) — ККС объекта и признак сигнала: `01MAJ81AA203XB01`. Признак задаёт правило `signal_pattern` — регулярное выражение конца кода, по умолчанию `X[A-Z][0-9]{2}`; разделитель ` `, `_` или `-` перед признаком допускается. Код сигнала не становится объектом каталога: `resolve` находит по нему объект. Правило, которое подходит к пустой строке или не разбирается, — `400 kks_rule_invalid`.
 - Записи, связанные с объектом, запрашиваются обычным запросом реестра с параметром `"kks": "<UUID>"`. Запись входит в список один раз, сколько бы связей с объектом у неё ни было (DATA-07).
+
+## Граф объектов
+
+Узлы — объекты ККС (`kks:<UUID>`) и записи (`record:<UUID>`), рёбра — связи записей с ККС и ссылки записей на записи (DATA-15). Право — `session`; записи реестров, которые роль не видит, и рёбра скрытых полей в граф не попадают.
+
+| Метод и путь | Ответ |
+| --- | --- |
+| `GET /graph/neighbourhood?node=&depth=` | `{start, nodes, edges, truncated}` — всё, что связано с узлом на `depth` шагов (1–4, по умолчанию 2); не больше 300 узлов |
+| `GET /graph/path?from=&to=` | `{found, nodes, edges}` — кратчайший путь не длиннее 8 рёбер |
+
+Узел: `{"id", "kind": "kks"|"record", "label", "kks_id"}` или `{…, "record_id", "dataset_id"}`. Подпись записи — значение первого уникального поля, иначе первого текстового. Ребро: `{"from", "to", "field", "role", "contact"}`; `role` — роль связи ККС или `link` для ссылки на запись. Неверный узел — `400 graph_node`.
 
 ## Журнал и состояние
 

@@ -232,6 +232,12 @@ class Normalizer:
             return self._choice(field, raw, old)
         if field.kind == "kks":
             return self._kks_id(field, raw, old)
+        if field.kind == "record":
+            if raw is None or raw == "":
+                return None
+            from engine import links  # links опирается на structure и text
+
+            return links.resolve(self.tx.conn, field, self.site_id, raw)
         return coerce_scalar(field.kind, raw, field.key)
 
     # Справочники --------------------------------------------------------------
