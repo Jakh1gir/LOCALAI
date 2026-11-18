@@ -66,7 +66,8 @@ def test_restore_returns_the_data_and_keeps_a_protective_backup(app, admin):
     restored = admin.post(f"/backups/{made['name']}/restore", {"password": PASSWORD})
     assert restored.status == 200, restored.json()
     protective = restored.json()["protective_backup"]
-    assert protective["label"] == backups.PROTECTIVE_LABEL
+    assert protective["label"] == backups.PROTECTIVE_LABEL and protective["protective"] is True
+    assert restored.json()["restored"]["protective"] is False
     assert admin.get("/sites").json()["error"]["code"] == "session_invalid"  # сессии закрыты
     fresh = Client(app)
     assert _sites(fresh) == ["ТЭЦ-1"]
@@ -205,3 +206,10 @@ def test_network_mode_requires_a_certificate(tmp_path, monkeypatch):
     tls.create(tmp_path / "tls", ["localai"])
     serve(["--db", db, "--host", "0.0.0.0"])
     assert started["ssl_certfile"].endswith(tls.CERT) and started["host"] == "0.0.0.0"
+
+
+def test_label_alone_does_not_make_a_copy_protective(admin):
+    made = _backup(admin, label=backups.PROTECTIVE_LABEL)
+    listed = {item["name"]: item for item in admin.get("/backups").json()["items"]}
+    assert listed[made["name"]]["label"] == backups.PROTECTIVE_LABEL
+    assert listed[made["name"]]["protective"] is False

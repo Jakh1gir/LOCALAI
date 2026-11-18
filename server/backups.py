@@ -87,6 +87,9 @@ def describe(path: Path) -> dict[str, Any]:
         "size": path.stat().st_size,
         "created_at": header["created_at"],
         "label": header.get("label"),
+        # Защитная копия перед восстановлением: признак, а не подпись — подпись
+        # «Перед восстановлением» может дать и человек.
+        "protective": header.get("kind") == "protective",
         "schema_version": header["schema_version"],
         "database_id": header.get("database_id"),
         "app_version": header.get("app_version"),
@@ -121,7 +124,7 @@ def restore(db: Database, folder: Path, name: str, password: str, actor: Actor) 
         header = _decrypt(source, plain, password)
         restored_schema = _check_restorable(plain)
         with db.exclusive() as conn:
-            protective = _pack(conn, db.path, folder, password, PROTECTIVE_LABEL)
+            protective = _pack(conn, db.path, folder, password, PROTECTIVE_LABEL, protective=True)
             copy = sqlite3.connect(plain)
             try:
                 copy.backup(conn)
@@ -154,7 +157,13 @@ def restore(db: Database, folder: Path, name: str, password: str, actor: Actor) 
 
 
 def _pack(
-    conn: sqlite3.Connection, db_path: str, folder: Path, password: str, label: str | None
+    conn: sqlite3.Connection,
+    db_path: str,
+    folder: Path,
+    password: str,
+    label: str | None,
+    *,
+    protective: bool = False,
 ) -> Path:
     work = _work(folder)
     plain = snapshot.take(conn, db_path, "backup", work)  # проверенная копия
@@ -167,6 +176,7 @@ def _pack(
             "created_at": text.now(),
             "app_version": engine.__version__,
             "label": label,
+            "kind": "protective" if protective else "manual",
             **meta,
             "size": plain.stat().st_size,
             "kdf": {**KDF, "salt": _b64(secrets.token_bytes(16))},
