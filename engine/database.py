@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
@@ -15,6 +16,8 @@ from typing import Any
 
 from engine import text
 from engine.errors import EngineError
+
+log = logging.getLogger("localai.engine")
 
 MIN_SQLITE = (3, 45, 0)
 BUSY_TIMEOUT_MS = 5000
@@ -120,6 +123,15 @@ class Database:
         self._local = threading.local()
         # Потоки одного процесса ждут здесь, а не в цикле занятости SQLite.
         self._write_lock = threading.Lock()
+        self._listeners: list[Callable[[], None]] = []
+
+    def on_commit(self, listener: Callable[[], None]) -> None:
+        """Вызывать ``listener`` после каждой записанной транзакции этого процесса.
+
+        Так сервер будит ожидающих событий (API-09) без опроса базы. Ошибка
+        слушателя не отменяет уже записанную транзакцию.
+        """
+        self._listeners.append(listener)
 
     def connect(self) -> sqlite3.Connection:
         conn = getattr(self._local, "conn", None)
@@ -175,6 +187,11 @@ class Database:
                 conn.execute("ROLLBACK")
                 raise
             conn.execute("COMMIT")
+        for listener in self._listeners:
+            try:
+                listener()
+            except Exception:  # транзакция уже записана: ошибка только в журнал
+                log.exception("Слушатель записи упал")
 
 
 def _open(path: str) -> sqlite3.Connection:

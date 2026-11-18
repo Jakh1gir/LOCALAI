@@ -62,6 +62,7 @@ class Reconciler:
         self.final_text = final_text  # значение Local_DB → текст конечного значения объединения
         self._labels: dict[str, str] = {}
         self._kks: dict[str, str] = {}
+        self.ignored: set[str] = set()  # ключи полей, которых нет в источнике
 
     def remember(
         self,
@@ -174,6 +175,8 @@ class Reconciler:
     def _target_lines(self, record_id: str, doc_text: str, kinds: dict[str, str]) -> list[str]:
         lines = []
         for key, value in json.loads(doc_text).items():
+            if key in self.ignored:
+                continue  # поля магнита ККС вычислены, в Local_DB их нет
             items = value if isinstance(value, list) else [value]
             shown = [self._target_display(kinds[key], item) for item in items]
             lines.append(f"{record_id}\t{key}\t" + "\x1f".join(shown))
