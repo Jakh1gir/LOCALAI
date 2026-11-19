@@ -13,6 +13,7 @@ import socket
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 from typing import Any
@@ -26,7 +27,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from ai import service
-from ai.model import Ollama
+from ai.model import Config, Ollama, build
 from server import ai_link
 from server.app import create_app
 from tests.server.asgi import ADMIN_PASSWORD, Client
@@ -60,8 +61,23 @@ class Running:
 def fake_ollama(seen: list[dict[str, Any]]) -> Starlette:
     """Ollama с одной моделью: первый шаг — вызов aggregate, второй — ответ по его итогу."""
 
+    installed = {
+        "small-model:latest": ("3.2B", ["completion", "tools"]),
+        "test-model:latest": ("27.4B", ["completion", "tools", "thinking"]),
+        "embed:latest": ("335M", ["embedding"]),
+    }
+
     async def tags(_request: Request) -> JSONResponse:
-        return JSONResponse({"models": [{"name": "test-model:latest"}]})
+        return JSONResponse({"models": [
+            {"name": name, "digest": name, "size": 2_000_000_000,
+             "details": {"parameter_size": size, "family": "test", "quantization_level": "Q4_K_M"}}
+            for name, (size, _) in installed.items()
+        ]})  # fmt: skip
+
+    async def show(request: Request) -> JSONResponse:
+        name = (await request.json())["model"]
+        return JSONResponse({"capabilities": installed[name][1],
+                             "model_info": {"test.context_length": 262144}})  # fmt: skip
 
     async def chat(request: Request) -> StreamingResponse:
         body = await request.json()
@@ -71,6 +87,11 @@ def fake_ollama(seen: list[dict[str, Any]]) -> Starlette:
         ]
 
         def lines() -> Iterator[bytes]:
+            if body.get("think"):
+                yield b'{"message": {"role": "assistant", "content": "", "thinking": "..."}}\n'
+            if [item["function"]["name"] for item in body["tools"]] == ["kks_card"]:  # проверка
+                yield from _probe_answer(results)
+                return
             if not results:
                 call = {
                     "function": {
@@ -94,7 +115,25 @@ def fake_ollama(seen: list[dict[str, Any]]) -> Starlette:
 
         return StreamingResponse(lines(), media_type="application/x-ndjson")
 
-    return Starlette(routes=[Route("/api/tags", tags), Route("/api/chat", chat, methods=["POST"])])
+    return Starlette(
+        routes=[
+            Route("/api/tags", tags),
+            Route("/api/show", show, methods=["POST"]),
+            Route("/api/chat", chat, methods=["POST"]),
+        ]
+    )
+
+
+def _probe_answer(results: list[dict[str, Any]]) -> Iterator[bytes]:
+    if not results:
+        call = {"function": {"name": "kks_card", "arguments": {"code": "10LAC10AP001"}}}
+        message = {"role": "assistant", "content": "", "tool_calls": [call]}
+    else:
+        message = {
+            "role": "assistant",
+            "content": "Это питательный электронасос 1 [1], давление 16,4 кгс/см² [2].",
+        }
+    yield (json.dumps({"message": message, "done": True}, ensure_ascii=False) + "\n").encode()
 
 
 @pytest.fixture
@@ -105,14 +144,14 @@ def stack(tmp_path):
     build_plant(Client(server_app))  # данные — в ту же базу, до запуска
     key = ai_link.load_key(tmp_path)
     seen: list[dict[str, Any]] = []
-    model = Ollama("test-model", url["ollama"])
+    model = build(Config(url=url["ollama"]))  # модель выбирается сама
     ai_app = service.create_app(server_url=url["server"], key=key, model=model)
     running = [
         Running(fake_ollama(seen), ports["ollama"]),
         Running(server_app, ports["server"]),
         Running(ai_app, ports["ai"]),
     ]
-    yield {"url": url, "key": key, "seen": seen}
+    yield {"url": url, "key": key, "seen": seen, "app": server_app}
     for item in reversed(running):
         item.stop()
 
@@ -156,7 +195,8 @@ def test_question_travels_through_real_http(stack):
     browser = Browser(stack["url"]["server"])
     status = browser.call("GET", "/ai/status")
     assert status["service"] is True
-    assert status["model"] == {"name": "test-model", "available": True, "remote": False}
+    assert status["model"] == {"provider": "ollama", "name": "test-model:latest",
+                               "configured": "auto", "available": True, "remote": False}  # fmt: skip
     dialog = browser.call("POST", "/ai/dialogs", {})["id"]
 
     events = browser.ask(dialog, "куда заведён 10LAC10AP001XB01")
@@ -169,15 +209,60 @@ def test_question_travels_through_real_http(stack):
     assert kinds[0] == "question" and kinds[-1] == "message" and "tool" in kinds
     answer = events[-1]["message"]
     assert answer["path"] == "model" and answer["text"] == "В работе 2 [1]."
+    assert answer["model"] == "test-model:latest"  # самая крупная модель с инструментами
     assert answer["sources"][0]["kind"] == "dataset"
     first = stack["seen"][0]
-    assert first["model"] == "test-model" and first["options"] == {"temperature": 0}
+    assert first["model"] == "test-model:latest"
+    assert first["options"] == {"temperature": 0.2, "num_ctx": 32768} and "think" not in first
     assert "aggregate" in [item["function"]["name"] for item in first["tools"]]
     second = stack["seen"][1]["messages"]
     assert second[-2]["tool_calls"][0]["function"]["name"] == "aggregate"
     assert second[-1]["role"] == "tool" and second[-1]["tool_name"] == "aggregate"
     stored = browser.call("GET", f"/ai/dialogs/{dialog}")["messages"]
     assert [item["path"] for item in stored if item["role"] == "assistant"] == ["fast", "model"]
+
+
+def test_admin_lists_checks_and_switches_models_without_restart(stack):
+    browser = Browser(stack["url"]["server"])
+    ollama = stack["url"]["ollama"]
+    listed = browser.call("GET", f"/ai/models?url={urllib.parse.quote(ollama)}")
+    assert listed["auto"] == "test-model:latest"
+    shown = {item["name"]: item for item in listed["items"]}
+    assert shown["small-model:latest"]["capabilities"] == ["completion", "tools"]
+    assert shown["test-model:latest"]["parameters"] == "27.4B"
+    assert shown["test-model:latest"]["context"] == 262144
+
+    checked = browser.call("POST", "/ai/models/check",
+                           {"config": {"url": ollama, "name": "small-model"}})  # fmt: skip
+    assert checked["score"] == 4 and all(checked["checks"].values()), checked
+    assert checked["model"] == "small-model:latest" and checked["error"] is None
+
+    saved = browser.call("PUT", "/ai/settings", {
+        "model": {"url": ollama, "name": "small-model", "think": "on", "context": 16384},
+        "fallback": {"url": ollama, "name": "test-model"},
+    })  # fmt: skip
+    assert saved["model"]["name"] == "small-model" and saved["model"]["api_key_set"] is False
+    status = browser.call("GET", "/ai/status")
+    assert status["model"]["name"] == "small-model:latest"
+    assert status["fallback"]["name"] == "test-model:latest"
+    dialog = browser.call("POST", "/ai/dialogs", {})["id"]
+    events = browser.ask(dialog, "Как распределены насосы по состоянию и почему?")
+    assert "thinking" in [item["type"] for item in events]
+    assert events[-1]["message"]["model"] == "small-model:latest"
+    body = stack["seen"][-1]
+    assert body["model"] == "small-model:latest" and body["think"] is True
+    assert body["options"]["num_ctx"] == 16384
+
+    browser.call("PUT", "/ai/settings",
+                 {"model": {"url": ollama, "name": "нет-такой"}})  # fmt: skip
+    status = browser.call("GET", "/ai/status")
+    assert status["model"]["available"] is False and status["fallback"]["available"] is True
+    events = browser.ask(dialog, "Как распределены насосы по состоянию и почему?")
+    assert events[-1]["message"]["model"] == "test-model:latest"  # ответила запасная
+
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        browser.call("PUT", "/ai/settings", {"model": {"url": ollama, "context": 10}})
+    assert refused.value.code == 400
 
 
 def test_ai_service_accepts_only_the_server_key(stack):
@@ -192,7 +277,7 @@ def test_ai_service_accepts_only_the_server_key(stack):
         assert refused.value.code == 403
     request = urllib.request.Request(base + "/health", headers={"X-LocalAI-Key": stack["key"]})
     with urllib.request.urlopen(request, timeout=5) as reply:
-        assert json.loads(reply.read())["model"]["name"] == "test-model"
+        assert json.loads(reply.read())["model"]["name"] == "test-model:latest"
     bad = urllib.request.Request(
         base + "/ask", data=json.dumps({"token": "ai.чужой", "question": "?"}).encode(),
         method="POST", headers={"X-LocalAI-Key": stack["key"]},
@@ -238,3 +323,75 @@ def _get(app: Any, path: str, host: str) -> int:
 
     anyio.run(call)
     return status["code"]
+
+
+def fake_openai(seen: list[dict[str, Any]]) -> Starlette:
+    """OpenAI-совместимый сервер (llama.cpp, vLLM): аргументы вызова приходят кусками."""
+
+    async def listed(_request: Request) -> JSONResponse:
+        return JSONResponse({"data": [{"id": "local-gguf", "owned_by": "llamacpp"}]})
+
+    async def chat(request: Request) -> StreamingResponse:
+        body = await request.json()
+        seen.append(body)
+        answered = any(item["role"] == "tool" for item in body["messages"])
+
+        def lines() -> Iterator[bytes]:
+            if answered:
+                deltas = [{"reasoning_content": "…"}, {"content": "Питательный электронасос 1 [1], "},
+                          {"content": "давление 16,4 кгс/см² [2]."}]  # fmt: skip
+            else:
+                deltas = [
+                    {"tool_calls": [{"index": 0, "id": "call_a", "type": "function",
+                                     "function": {"name": "kks_card", "arguments": '{"code": '}}]},
+                    {"tool_calls": [{"index": 0, "function": {"arguments": '"10LAC10AP001"}'}}]},
+                ]  # fmt: skip
+            for delta in deltas:
+                part = {"choices": [{"index": 0, "delta": delta}]}
+                yield f"data: {json.dumps(part, ensure_ascii=False)}\n\n".encode()
+            yield b"data: [DONE]\n\n"
+
+        return StreamingResponse(lines(), media_type="text/event-stream")
+
+    return Starlette(
+        routes=[
+            Route("/v1/models", listed),
+            Route("/v1/chat/completions", chat, methods=["POST"]),
+        ]
+    )
+
+
+def test_openai_compatible_server_works_as_model():
+    from ai import probe
+
+    seen: list[dict[str, Any]] = []
+    port = _port()
+    running = Running(fake_openai(seen), port)
+    try:
+        model = build(Config(provider="openai", url=f"http://127.0.0.1:{port}", think="high"))
+        assert model.status() == {"provider": "openai", "name": "local-gguf", "configured": "auto",
+                                  "available": True, "remote": False}  # fmt: skip
+        result = probe.run(model)
+    finally:
+        running.stop()
+    assert result["score"] == 4, result
+    assert seen[0]["reasoning_effort"] == "high" and seen[0]["model"] == "local-gguf"
+    assistant, tool_reply = seen[1]["messages"][-2:]
+    assert assistant["tool_calls"][0] == {
+        "id": "call_a", "type": "function",
+        "function": {"name": "kks_card", "arguments": '{"code": "10LAC10AP001"}'},
+    }  # fmt: skip
+    assert tool_reply == {
+        "role": "tool",
+        "content": tool_reply["content"],
+        "tool_call_id": "call_a",
+    }
+
+
+def test_model_config_is_checked():
+    for bad in ({"provider": "gpt"}, {"think": "очень"}, {"context": 100}, {"url": "ftp://x"},
+                {"temperature": 5}, {"секрет": 1}):  # fmt: skip
+        with pytest.raises(ValueError):
+            Config.parse(bad)
+    assert Config.parse({"url": "http://10.1.2.3:11434"}).remote is True
+    assert Config.parse(None).provider == "none"

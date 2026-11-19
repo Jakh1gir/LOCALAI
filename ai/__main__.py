@@ -29,14 +29,24 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cafile", help="сертификат сервера, если он работает по HTTPS")
     parser.add_argument("--host", default="127.0.0.1", help="только локальный адрес")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--model", default=models.DEFAULT, help="ollama:<имя> или none")
+    parser.add_argument(
+        "--model",
+        default=models.DEFAULT,
+        help="ollama (модель выбирается сама), ollama:<имя>, openai[:<имя>] или none;"
+        " администратор меняет модель в настройках ИИ без перезапуска",
+    )
     parser.add_argument("--ollama", default=models.OLLAMA_URL, help="адрес Ollama")
+    parser.add_argument(
+        "--openai-url",
+        default="http://127.0.0.1:8080",
+        help="адрес OpenAI-совместимого сервера (llama.cpp, vLLM, LM Studio)",
+    )
     args = parser.parse_args(argv)
     if args.host not in LOOPBACK:
         sys.exit("Ошибка: ИИ-служба слушает только этот компьютер (127.0.0.1)")
     try:
         key = Path(args.key_file).read_text(encoding="ascii").strip()
-        chosen = models.make(args.model, args.ollama)
+        chosen = models.make(args.model, args.ollama, args.openai_url)
     except (OSError, ValueError) as error:
         sys.exit(f"Ошибка: {error}")
     if not key:

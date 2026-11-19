@@ -123,13 +123,37 @@ class AiLink:
         self.url = url.rstrip("/")
         self.key = key
 
-    def health(self) -> dict[str, Any] | None:
-        request = urllib.request.Request(self.url + "/health", headers={HEADER: self.key})
+    def health(self, models: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        """Жива ли служба и доступны ли модели из настроек; ``None`` — служба не отвечает."""
         try:
-            with urllib.request.urlopen(request, timeout=CONNECT_TIMEOUT) as response:
-                return json.loads(response.read())
-        except (OSError, ValueError):
+            return self._call("/health", {"models": models or {}}, CONNECT_TIMEOUT + 3)
+        except AiUnavailable:
             return None
+
+    def models(self, config: dict[str, Any]) -> dict[str, Any]:
+        return self._call("/models", {"config": config}, 15.0)
+
+    def check(self, config: dict[str, Any]) -> dict[str, Any]:
+        return self._call("/check", {"config": config}, ANSWER_TIMEOUT)
+
+    def _call(self, path: str, body: dict[str, Any], timeout: float) -> dict[str, Any]:
+        request = urllib.request.Request(
+            self.url + path,
+            data=json.dumps(body).encode(),
+            headers={HEADER: self.key, "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            try:
+                detail = json.loads(error.read())["error"]["message"]
+            except (ValueError, KeyError, TypeError):
+                detail = f"ответ {error.code}"
+            raise AiUnavailable(detail) from None
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            raise AiUnavailable(str(error)) from None
 
     def ask(self, payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
         request = urllib.request.Request(

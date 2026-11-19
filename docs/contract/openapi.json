@@ -187,6 +187,21 @@
         "title": "AiFeedback",
         "type": "object"
       },
+      "AiModelCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          }
+        },
+        "required": [
+          "config"
+        ],
+        "title": "AiModelCheck",
+        "type": "object"
+      },
       "AiSettings": {
         "additionalProperties": false,
         "properties": {
@@ -206,6 +221,32 @@
             "default": false,
             "title": "Confirm Cloud",
             "type": "boolean"
+          },
+          "fallback": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fallback"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
           },
           "retention_days": {
             "anyOf": [
@@ -3229,6 +3270,173 @@
         "x-permission": "section.ai"
       }
     },
+    "/api/v1/ai/models": {
+      "get": {
+        "operationId": "ai_models",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Модели, установленные у поставщика, с умениями: инструменты, размышление, зрение.",
+        "tags": [
+          "ИИ"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
+    "/api/v1/ai/models/check": {
+      "post": {
+        "operationId": "ai_check_model",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiModelCheck"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Проверить модель на вопросе станции до того, как сделать её основной.",
+        "tags": [
+          "ИИ"
+        ],
+        "x-permission": "section.admin"
+      }
+    },
     "/api/v1/ai/schema": {
       "get": {
         "operationId": "ai_schema",
@@ -3439,7 +3647,7 @@
             "description": "Ошибка: код, текст на русском, поле"
           }
         },
-        "summary": "Изменить настройки ИИ; облачная модель — только с подтверждением (AI-15).",
+        "summary": "Изменить настройки ИИ: срок хранения, облачная модель (AI-15), основная и запасная модели.",
         "tags": [
           "ИИ"
         ],
@@ -3505,7 +3713,7 @@
             "description": "Ошибка: код, текст на русском, поле"
           }
         },
-        "summary": "Работает ли ИИ-служба, какая модель подключена и разрешена ли облачная модель.",
+        "summary": "Работает ли ИИ-служба, какие модели подключены и разрешена ли облачная модель.",
         "tags": [
           "ИИ"
         ],
