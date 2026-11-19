@@ -11,6 +11,7 @@
 
 - запись и реестр — право «видеть» на реестр;
 - сообщение чата — раздел «Общий чат»;
+- документ (загрузка, чтение, замена, привязки) — право «видеть» на его тип;
 - ККС и структура (поля, типы, справочники) — каждому вошедшему: без них
   экран не перестроится;
 - остальное (пользователи, роли, сети, копии, перенос) — администратору.
@@ -49,7 +50,7 @@ def since(conn: sqlite3.Connection, viewer: Access, after: int) -> dict[str, Any
         if len(events) >= MAX_EVENTS:
             break
         last = row["seq"]
-        if row["origin"] in _SKIPPED_ORIGINS or not _visible(row, viewer):
+        if row["origin"] in _SKIPPED_ORIGINS or not _visible(conn, row, viewer):
             continue
         events.append(
             {
@@ -66,7 +67,7 @@ def since(conn: sqlite3.Connection, viewer: Access, after: int) -> dict[str, Any
     return {"cursor": last, "events": events, "more": bool(more)}
 
 
-def _visible(row: sqlite3.Row, viewer: Access) -> bool:
+def _visible(conn: sqlite3.Connection, row: sqlite3.Row, viewer: Access) -> bool:
     kind = row["entity_kind"]
     if kind == "record":
         return row["dataset_id"] is not None and viewer.can(row["dataset_id"], "view")
@@ -75,6 +76,11 @@ def _visible(row: sqlite3.Row, viewer: Access) -> bool:
         return dataset_id is not None and viewer.can(dataset_id, "view")
     if kind == "chat_message":
         return viewer.has("chat")
+    if kind == "document":
+        found = conn.execute(
+            "SELECT type_id FROM documents WHERE id = ?", (row["entity_id"],)
+        ).fetchone()
+        return found is not None and viewer.sees_documents(found["type_id"])
     if kind in _SHARED:
         return True
     return viewer.has("admin")
