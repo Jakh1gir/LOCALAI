@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from starlette.responses import FileResponse
@@ -22,7 +23,9 @@ def create_backup(call: Call) -> dict[str, Any]:
     """Сделать зашифрованную копию базы; пароль копии в базе не хранится."""
     assert call.db is not None and call.backups is not None
     body = call.body
-    return backups.create(call.db, call.backups, body.password, body.label, call.access.actor)
+    return backups.create(
+        call.db, call.backups, body.password, body.label, call.access.actor, _files(call)
+    )
 
 
 def download(call: Call) -> FileResponse:
@@ -36,8 +39,18 @@ def restore(call: Call) -> dict[str, Any]:
     """Восстановить базу из копии; текущее состояние сначала уходит в защитную копию."""
     assert call.db is not None and call.backups is not None
     return backups.restore(
-        call.db, call.backups, call.params["name"], call.body.password, call.access.actor
+        call.db,
+        call.backups,
+        call.params["name"],
+        call.body.password,
+        call.access.actor,
+        _files(call),
     )
+
+
+def _files(call: Call) -> Path | None:
+    """Папка файлов документов: копия включает их (KNOW-11)."""
+    return call.files.folder if call.files is not None else None
 
 
 def _e(method: str, path: str, handler, **extra: Any) -> Endpoint:  # type: ignore[no-untyped-def]

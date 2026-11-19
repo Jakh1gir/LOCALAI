@@ -213,3 +213,67 @@ def test_label_alone_does_not_make_a_copy_protective(admin):
     listed = {item["name"]: item for item in admin.get("/backups").json()["items"]}
     assert listed[made["name"]]["label"] == backups.PROTECTIVE_LABEL
     assert listed[made["name"]]["protective"] is False
+
+
+# Файлы документов в копии (KNOW-11) -------------------------------------------------
+
+
+def _restore(admin, name):
+    reply = admin.post(f"/backups/{name}/restore", {"password": PASSWORD})
+    assert reply.status == 200, reply.json()
+    return reply.json()
+
+
+def test_document_files_travel_with_the_backup(app, admin):
+    secret = "текст паспорта насоса, тайный".encode()
+    made = admin.request(
+        "POST", "/documents", raw=secret, query={"name": "паспорт.txt"}, key=""
+    ).json()
+    backup = _backup(admin)
+    assert backup["files"] == 1 and backup["files_missing"] == 0
+    assert secret not in (_folder(app) / backup["name"]).read_bytes()  # зашифровано
+    store = app.state.files.folder
+    for path in store.rglob("*"):
+        if path.is_file():
+            path.unlink()  # файлы потеряны вместе с диском
+    restored = _restore(Client(app), backup["name"])
+    assert restored["files_added"] == 1
+    again = Client(app)
+    assert again.get(f"/documents/{made['id']}/file").body == secret
+
+
+def test_old_database_only_copy_still_restores(app, admin, monkeypatch):
+    admin.post("/sites", {"name": "Из старой копии"})
+    monkeypatch.setattr(backups, "FORMAT", 1)
+    monkeypatch.setattr(backups, "_bundle", _database_only)
+    old = _backup(admin)
+    monkeypatch.undo()
+    admin.post("/sites", {"name": "Позже"})
+    restored = _restore(admin, old["name"])
+    assert restored["files_added"] == 0
+    assert _sites(Client(app)) == ["Из старой копии"]
+
+
+def _database_only(database, bundle, files):
+    """Пакет формата 1: содержимое — сама база, без архива."""
+    bundle.write_bytes(database.read_bytes())
+    return 0, 0
+
+
+def test_forged_archive_member_is_refused(app, admin, monkeypatch, tmp_path):
+    import tarfile
+
+    def evil(database, bundle, files):
+        sneaky = tmp_path / "evil"
+        sneaky.write_text("x")
+        with tarfile.open(bundle, "w") as archive:
+            archive.add(database, arcname=backups.DATABASE)
+            archive.add(sneaky, arcname="../../evil")
+        return 1, 0
+
+    monkeypatch.setattr(backups, "_bundle", evil)
+    forged = _backup(admin)
+    monkeypatch.undo()
+    reply = admin.post(f"/backups/{forged['name']}/restore", {"password": PASSWORD})
+    assert reply.status == 400 and reply.json()["error"]["code"] == "backup_corrupt"
+    assert not (tmp_path.parent / "evil").exists()

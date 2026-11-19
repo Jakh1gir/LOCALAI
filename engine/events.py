@@ -12,6 +12,7 @@
 - запись и реестр — право «видеть» на реестр;
 - сообщение чата — раздел «Общий чат»;
 - документ (загрузка, чтение, замена, привязки) — право «видеть» на его тип;
+- заметка знаний — тому, кто видит все её источники (SEC-06);
 - ККС и структура (поля, типы, справочники) — каждому вошедшему: без них
   экран не перестроится;
 - остальное (пользователи, роли, сети, копии, перенос) — администратору.
@@ -24,6 +25,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+from engine import knowledge
 from engine.access import Access
 
 SCAN = 500  # строк журнала за один запрос: курсор двигается и по невидимым
@@ -76,6 +78,11 @@ def _visible(conn: sqlite3.Connection, row: sqlite3.Row, viewer: Access) -> bool
         return dataset_id is not None and viewer.can(dataset_id, "view")
     if kind == "chat_message":
         return viewer.has("chat")
+    if kind == "knowledge_note":
+        found = conn.execute(
+            "SELECT seq FROM knowledge_notes WHERE id = ?", (row["entity_id"],)
+        ).fetchone()
+        return found is not None and knowledge.visible(conn, viewer, found["seq"])
     if kind == "document":
         found = conn.execute(
             "SELECT type_id FROM documents WHERE id = ?", (row["entity_id"],)

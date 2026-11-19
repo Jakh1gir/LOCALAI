@@ -80,6 +80,7 @@
 | `section.chat_moderate` | роль с разделом «Общий чат: скрывать чужие сообщения» | скрытие и возврат сообщений |
 | `section.documents` | роль с разделом «Документы» | загрузка, замена, архив, привязки, решения по упоминаниям ККС |
 | `section.worker` | служебная учётная запись процесса схем | захват и завершение фоновых задач, скачивание файла документа |
+| `section.knowledge` | роль с разделом «Знания» | подтверждение и отклонение заметок, очередь проверки, словарь станции |
 | `dataset.view`, `.create`, `.edit`, `.archive`, `.purge` | роль с этим действием над реестром из пути (или реестром записи) | маршруты записей, `GET /datasets/{id}` |
 
 - `GET /datasets` показывает только реестры, которые роль может видеть; роли с разделом «Структура» или «Администрирование» — все реестры: им нужно вести структуру и выдавать права на реестры, записи которых они сами не читают. Карточка ККС считает связи только в таких реестрах.
@@ -134,9 +135,9 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | `GET /backups` | — | копии от новых к старым |
 | `POST /backups` | `{password, label?}` | копия, `201` |
 | `GET /backups/{name}/file` | — | файл копии (`application/octet-stream`) |
-| `POST /backups/{name}/restore` | `{password}` | `{restored, protective_backup, schema_version}` |
+| `POST /backups/{name}/restore` | `{password}` | `{restored, protective_backup, schema_version, files_added}` |
 
-Копия в списке: `{name, size, created_at, label, protective, schema_version, database_id, app_version}`. `protective: true` — защитная копия, сделанная сервером перед восстановлением; признак записан в заголовке копии, подпись «Перед восстановлением» его не даёт. У копий, сделанных до этого признака, — `false`. Файл, который не читается как копия, приходит с полем `error`.
+Копия в списке: `{name, size, created_at, label, protective, schema_version, database_id, app_version, files, files_missing}`. Копия содержит базу и файлы документов (KNOW-11): `files` — сколько файлов в копии, `files_missing` — сколько файлов, на которые ссылается база, не нашлось на диске при упаковке. При восстановлении недостающие файлы добавляются в хранилище (`files_added`), имеющиеся не трогаются; копии старого формата (только база) восстанавливаются как раньше. `protective: true` — защитная копия, сделанная сервером перед восстановлением; признак записан в заголовке копии, подпись «Перед восстановлением» его не даёт. У копий, сделанных до этого признака, — `false`. Файл, который не читается как копия, приходит с полем `error`.
 
 - **Копия зашифрована** (SEC-09): AES-256-GCM, ключ из пароля через Argon2id. Пароль — от 12 символов, в базе не хранится; без него копию не восстановить. Время, подпись и версия схемы читаются без пароля, чтобы показать список.
 - Копия делается из согласованного снимка базы и проверяется (`integrity_check`) до шифрования. Работа других пользователей во время копии не останавливается.
@@ -398,6 +399,40 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 - **Поиск.** `GET /search` возвращает `documents: [{document_id, title, type, page, snippet}]` — по одной лучшей странице документа, только видимых типов и текущих версий.
 - **Журнал:** `document.create`, `document.replace`, `document.read`, `document.archive`, `document.link`, `document.unlink`, `document.mention`.
 
+## Знания
+
+Заметки знаний и словарь станции (ТЗ 8, KNOW-06…10, SEC-06). Подтверждать, отклонять и вести словарь — раздел `knowledge` («Знания»); миграция `0011` выдала его ролям с «Администрированием». Предложить заметку и исправить свою может любой вошедший.
+
+| Метод и путь | Тело запроса | Ответ |
+| --- | --- | --- |
+| `GET /knowledge/notes?state=&scope_kind=&scope_id=&q=&limit=` | — | `{items, more}` |
+| `POST /knowledge/notes` | `{title, body, scope?: {kind, id}, sources?: [{kind, id, page?}], origin?}` | заметка, `201` |
+| `GET /knowledge/notes/{id}` | — | заметка |
+| `PATCH /knowledge/notes/{id}` | `{version, title?, body?, sources?}` | заметка |
+| `POST /knowledge/notes/{id}/confirm` | `{version}` | заметка |
+| `POST /knowledge/notes/{id}/reject` | `{reason?}` | заметка |
+| `GET /knowledge/queue` | — | `{items, more, counts: {proposed, stale}}` — очередь проверки |
+| `GET /knowledge/glossary?q=` | — | `{items: [{id, term, meaning, kks, updated_at}]}` |
+| `POST /knowledge/glossary` | `{term, meaning, kks_ids?}` | термин, `201` |
+| `PUT /knowledge/glossary/{id}` | `{term, meaning, kks_ids?}` | термин |
+| `DELETE /knowledge/glossary/{id}` | — | — |
+
+- **Заметка:** `{id, title, body, state, origin, version, scope, sources, author, confirmed_by, confirmed_at, stale_reason, reject_reason, created_at, updated_at}`.
+  - `scope` — на что заметка: `{kind: "kks", id, code}`, `{kind: "type", id, name}` или `{kind: "station"}`.
+  - `origin` — `user` или `ai`: ИИ предлагает заметку от имени пользователя.
+- **Состояния** (KNOW-06): `proposed` → `confirmed` → `stale` или `rejected`. `GET /knowledge/notes` и общий поиск по умолчанию отдают только подтверждённые: на них опирается ИИ. Другие состояния — `state=proposed,stale`.
+- **Источники** (KNOW-07): `{kind, id, version, page, current_version, …}`.
+  - `version` — версия записи или документа на момент подтверждения. Подтверждение фиксирует текущие версии заново.
+  - Источник, которого нет или который автор не видит, — `400 note_source_missing`.
+- **Устаревание** (KNOW-08) делает сама база: правка, архив и удаление записи-источника, замена и архив документа-источника переводят предложенную и подтверждённую заметку в `stale` с причиной в `stale_reason`. В журнал и в события пишется `note.stale` — любым путём изменения: правкой, импортом, пакетной правкой.
+- **Подтверждение устаревшей** — «проверено, верно». Если источник удалён, подтвердить нельзя (`note_source_missing`): сначала исправьте источники.
+- **Правка** возвращает заметку в `proposed` и требует нового подтверждения. Править может автор или роль со «Знаниями»; нужна текущая `version`, иначе `409 version_conflict`. Отклонённую заметку перед подтверждением нужно исправить (`409 note_rejected`).
+- **Права** (SEC-06): заметку видит только тот, кто видит все её источники — запись по праву на реестр, документ по праву на тип. Иначе `404`; в списках и в поиске заметки нет.
+- **Словарь** (KNOW-10): `term` — местное название, уникальное без учёта регистра и пробелов, иначе `409 term_taken`; `kks_ids` — объекты ККС, которые оно означает.
+  - Общий поиск находит термин и как всю строку, и как слово в ней. Он возвращает `glossary`, ставит объекты термина первыми (`via: "glossary"`, `term`) и добавляет записи с их кодами.
+- **Журнал:** `note.propose`, `note.edit`, `note.confirm`, `note.reject`, `note.stale`, `glossary.add`, `glossary.update`, `glossary.delete`.
+- Оценки ответов ИИ (KNOW-05) и диалоги (KNOW-12) появятся вместе со службой ИИ (этап 5).
+
 ## Фоновые задачи
 
 Очередь задач (VIS-01, VIS-02). Задачи `document.read` с `reader: "vision"` выполняет процесс схем. Он входит служебной учётной записью с разделом `worker` («Фоновые задачи: выполнять»). Сервер свои задачи (`reader: "server"`) выполняет сам фоновым потоком.
@@ -423,7 +458,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 
 | Метод и путь | Ответ |
 | --- | --- |
-| `GET /search?q=&limit=&site_id=` | `{query, kks, records, more: {records}, documents, notes, took_ms}` |
+| `GET /search?q=&limit=&site_id=` | `{query, kks, records, more: {records}, documents, notes, glossary, took_ms}` |
 
 Строка Ctrl+K в оболочке (ТЗ 5.1, 11.1). Право — `session`. `limit` — от 1 до 50, по умолчанию 20; `site_id` сужает поиск до площадки.
 
@@ -437,7 +472,9 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 - **Права** (ROLE-03):
   - реестр без права `view` не участвует;
   - в реестре со скрытыми от роли полями поиск идёт перебором видимых значений, поэтому совпадение по скрытому полю не выдаёт запись.
-- `documents` — страницы прочитанных документов видимых типов (см. «Документы»); `notes` заполнится с API заметок знаний.
+- `documents` — страницы прочитанных документов видимых типов (см. «Документы»).
+- `notes` — подтверждённые заметки знаний, видимые пользователю: `{id, title, scope, snippet}`.
+- `glossary` — термины словаря станции в строке; их объекты ККС идут первыми в `kks` с `via: "glossary"`, записи с их кодами — в `records` с `via: "glossary"` (см. «Знания»).
 - **Ошибки:** пустая строка — `400 search_empty`, длиннее 200 знаков — `400 search_too_long`.
 - **Скорость:** на 100 000 записях в пяти реестрах — от 1 до 25 мс; перебор реестра на 20 000 записей со скрытым полем — до 41 мс (PERF-07 — 300 мс).
 
@@ -510,6 +547,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   - записи и реестры — с правом `view` на реестр;
   - сообщения чата — с разделом `chat`;
   - документы — с правом `view` на их тип;
+  - заметки знаний — тому, кто видит все их источники;
   - ККС, поля, типы, площадки, справочники — каждому вошедшему;
   - остальное — роли с разделом «Администрирование».
   Журнал, перенесённый из Local_DB, событий не даёт.
