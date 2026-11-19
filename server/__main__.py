@@ -4,6 +4,9 @@
 или адрес сетевой карты) он работает только по HTTPS: без сертификата в папке
 ``tls`` рядом с базой запуск отклоняется (SEC-04). Сертификат создаёт
 ``python -m server.admin --db … create-certificate --host <имя или адрес>``.
+
+Вместе с сервером в фоне запускается ИИ-служба (а она — Ollama): включать их
+отдельно не нужно. ``--no-ai-start`` — если служба запускается иначе.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from pathlib import Path
 import uvicorn
 
 from engine import EngineError
-from server import tls
+from server import ai_link, tls
 from server.admin import tls_folder
 from server.app import create_app
 
@@ -36,6 +39,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--ai-url", help="адрес ИИ-службы на этом компьютере; по умолчанию http://127.0.0.1:8731"
     )
+    parser.add_argument(
+        "--no-ai-start", action="store_true", help="не запускать ИИ-службу вместе с сервером"
+    )
     args = parser.parse_args(argv)
     folder = Path(args.tls_dir) if args.tls_dir else tls_folder(args.db)
     try:
@@ -43,7 +49,24 @@ def main(argv: list[str] | None = None) -> None:
     except EngineError as error:
         sys.exit(f"Ошибка: {error.message}")
     app = create_app(args.db, backups=args.backups, ai_url=args.ai_url)
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info", **options)
+    link = app.state.ai
+    background = None
+    if not args.no_ai_start and isinstance(link, ai_link.AiLink) and ai_link.is_local(link.url):
+        data = Path(args.db).resolve().parent
+        own = "127.0.0.1" if args.host in ("0.0.0.0", "::", "localhost", "127.0.0.1") else args.host
+        scheme = "https" if options else "http"
+        background = ai_link.start_service(
+            link,
+            key_file=data / ai_link.KEY_FILE,
+            server_url=f"{scheme}://{own}:{args.port}",
+            cafile=options.get("ssl_certfile"),
+            log=data / "logs" / "ai.log",
+        )
+    try:
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info", **options)
+    finally:
+        if background is not None:
+            background.stop()
 
 
 if __name__ == "__main__":

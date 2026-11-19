@@ -562,7 +562,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 
 | Метод и путь | Тело запроса | Ответ |
 | --- | --- | --- |
-| `GET /ai/status` | — | `{service, model, fallback, cloud_allowed, limits: {steps, calls}}`; модель — `{provider, name, configured, available, remote}` или `null` |
+| `GET /ai/status` | — | `{service, model, fallback, runtime, cloud_allowed, limits: {steps, calls}}`; модель — `{provider, name, configured, available, remote}` или `null` |
 | `GET /ai/schema` | — | `{sites, datasets: [{id, name, site_id, site, type, can_edit, fields}]}` — что пользователь может спрашивать |
 | `GET /ai/dialogs?limit=` | — | `{items: [{id, title, created_at, updated_at, messages}]}` — свои, свежие сначала |
 | `POST /ai/dialogs` | `{title?}` | диалог, `201` |
@@ -623,16 +623,27 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   - `cites` — поставила ссылку `[n]`;
   - `russian` — ответила по-русски.
   `score` — сколько проверок пройдено из 4. Без службы ИИ — `503 ai_unavailable`.
+- **Фоновый запуск.** `runtime` — `{ollama, pulls, warm, error?}` или `null`:
+  - `ollama`: `running` — служба сама запустила Ollama; `starting`; `external` — уже был запущен; `not_installed`; `failed` — падает при запуске (подробности в `error` и `logs/ollama.log`); `remote` — Ollama на другом компьютере; `stopped`;
+  - `pulls` — `{имя: {status: downloading | done | failed | stopped, completed, total, error}}`: скачивание недостающих моделей;
+  - `warm` — модель, загруженная в память заранее.
+  Сервер запускает ИИ-службу вместе с собой, служба — Ollama; см. «ИИ-служба».
 - **Облачная модель** (AI-15) выключена. Модель на другом компьютере работает только при `cloud_allowed: true`; включение требует `confirm_cloud: true`, иначе `400 ai_cloud_confirm_required`.
 - **Журнал:** `ai.draft_propose`, `ai.draft_accept`, `ai.draft_reject`, `ai.settings`. Вопросы и ответы в журнал не пишутся: это переписка пользователя.
 
 ### ИИ-служба
 
+Сервер (`python -m server`) запускает службу в фоне сам и перезапускает, если она упала; `--no-ai-start` — не запускать. Служба при запуске:
+- запускает `ollama serve` в фоне, если Ollama не отвечает, — с flash attention, сжатым кэшем контекста (`q8_0`) и окном 32 768; упал — запускает снова; уже запущенный Ollama не трогает;
+- скачивает недостающие модели из `--pull` (по умолчанию `qwen3.5:9b`, `qwen3.5:4b`);
+- загружает основную модель в память и держит её `--keep-alive` (30 минут); сменилась основная модель — прогревает новую.
+Журналы — `logs/ai.log` и `logs/ollama.log` рядом с базой.
+
 Служба слушает только этот компьютер и принимает запросы только с заголовком `X-LocalAI-Key` — ключом из файла `ai.key` рядом с базой; сервер создаёт его при первом запуске (SEC-05). Сервер ищет службу по `--ai-url` или `LOCALAI_AI_URL`, по умолчанию `http://127.0.0.1:8731`.
 
 | Путь службы (не API сервера) | Метод | Ответ |
 | --- | --- | --- |
-| `/health` | `GET`, `POST {models}` | `{service: "ai", model, fallback}` |
+| `/health` | `GET`, `POST {models}` | `{service: "ai", model, fallback, runtime}` |
 | `/ask` | `POST` | поток NDJSON: `thinking`, `tool`, `text`, `draft`, последней — `{type: "done", status, path, model, steps, sources, calls, took_ms}` |
 | `/models` | `POST {config}` | `{items, auto}` |
 | `/check` | `POST {config}` | результат проверки модели |
