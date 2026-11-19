@@ -38,6 +38,7 @@ from engine.errors import (
     TOO_LARGE,
     TOO_MANY,
     UNAUTHORIZED,
+    UNAVAILABLE,
     not_found,
 )
 from engine.sessions import Session
@@ -66,6 +67,7 @@ _STATUS = {
     UNAUTHORIZED: 401,
     FORBIDDEN: 403,
     TOO_MANY: 429,
+    UNAVAILABLE: 503,
 }
 _WRITE_METHODS = ("POST", "PATCH", "PUT", "DELETE")
 MAX_BODY = 10 * 1024 * 1024

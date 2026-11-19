@@ -43,9 +43,28 @@ MAX_RETENTION = 3650
 # Настройки (KNOW-12, AI-15) --------------------------------------------------------
 
 
-def settings(conn: sqlite3.Connection) -> dict[str, Any]:
+DEFAULTS: dict[str, Any] = {
+    "retention_days": 180,
+    "cloud_allowed": False,
+    # Основная и запасная модель (AI-01): None — модель, с которой запущена служба ИИ.
+    "model": None,
+    "fallback": None,
+}
+
+
+def settings(conn: sqlite3.Connection, *, secrets: bool = False) -> dict[str, Any]:
+    """Настройки ИИ. Ключ доступа к модели наружу не отдаётся: только признак, что он задан."""
     rows = conn.execute("SELECT key, value FROM ai_settings").fetchall()
-    return {row["key"]: json.loads(row["value"]) for row in rows}
+    shown = DEFAULTS | {row["key"]: json.loads(row["value"]) for row in rows}
+    if not secrets:
+        for key in ("model", "fallback"):
+            if isinstance(shown[key], dict):
+                api_key = shown[key].get("api_key")
+                shown[key] = {
+                    item: value for item, value in shown[key].items() if item != "api_key"
+                }
+                shown[key]["api_key_set"] = bool(api_key)
+    return shown
 
 
 def set_settings(
@@ -54,9 +73,18 @@ def set_settings(
     retention_days: Any = None,
     cloud_allowed: Any = None,
     confirm_cloud: bool = False,
+    models: dict[str, dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
-    """Облачная модель включается только с явным согласием: данные уйдут из сети (AI-15)."""
+    """Облачная модель включается только с явным согласием: данные уйдут из сети (AI-15).
+
+    ``models`` — ``{"model": …, "fallback": …}``; настройку модели проверяет
+    сервер (``ai.model.Config``), здесь она сохраняется как есть; ``None`` —
+    модель запуска службы.
+    """
     changes: dict[str, Any] = {}
+    for key, value in (models or {}).items():
+        if key in ("model", "fallback"):
+            changes[key] = value
     if retention_days is not None:
         if (
             not isinstance(retention_days, int)
@@ -85,7 +113,12 @@ def set_settings(
             (key, json.dumps(value)),
         )
     if changes:
-        tx.audit("ai.settings", "ai_settings", None, details=changes)
+        shown = {key: value for key, value in changes.items() if key not in ("model", "fallback")}
+        for key in ("model", "fallback"):
+            if key in changes:  # в журнал — без ключа доступа
+                value = changes[key]
+                shown[key] = {k: v for k, v in value.items() if k != "api_key"} if value else None
+        tx.audit("ai.settings", "ai_settings", None, details=shown)
     return settings(tx.conn)
 
 
@@ -185,6 +218,7 @@ def add_answer(
     steps: list[dict[str, Any]],
     sources: list[dict[str, Any]],
     took_ms: float | None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Ответ ИИ. Диалог мог быть удалён, пока шёл ответ: тогда ответ не сохраняется."""
     row = tx.conn.execute(
@@ -197,11 +231,11 @@ def add_answer(
         path = None
     if row is None:
         return {"id": None, "dialog_id": dialog_id, "role": "assistant", "text": shown,
-                "status": status, "path": path, "steps": steps, "sources": sources,
+                "status": status, "path": path, "model": model, "steps": steps, "sources": sources,
                 "took_ms": took_ms, "created_at": tx.now, "feedback": None}  # fmt: skip
     message = _insert(
         tx, row["seq"], "assistant", shown, status, path,
-        steps=steps, sources=sources, took_ms=took_ms,
+        steps=steps, sources=sources, took_ms=took_ms, model=model,
     )  # fmt: skip
     tx.conn.execute("UPDATE ai_dialogs SET updated_at = ? WHERE seq = ?", (tx.now, row["seq"]))
     return _message(message, dialog_id)
@@ -460,13 +494,14 @@ def _insert(
     steps: list[dict[str, Any]] | None = None,
     sources: list[dict[str, Any]] | None = None,
     took_ms: float | None = None,
+    model: str | None = None,
 ) -> sqlite3.Row:
     message_id = text.new_id()
     tx.conn.execute(
-        "INSERT INTO ai_messages (id, dialog_seq, role, text, status, path, context, steps,"
-        " sources, took_ms, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (message_id, dialog_seq, role, shown, status, path, dumps(context or {}),
-         dumps(steps or []), dumps(sources or []), took_ms, tx.now),
+        "INSERT INTO ai_messages (id, dialog_seq, role, text, status, path, model, context,"
+        " steps, sources, took_ms, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (message_id, dialog_seq, role, shown, status, path, (model or None) and str(model)[:200],
+         dumps(context or {}), dumps(steps or []), dumps(sources or []), took_ms, tx.now),
     )  # fmt: skip
     return tx.conn.execute(
         "SELECT m.*, NULL AS verdict, NULL AS correction FROM ai_messages m WHERE id = ?",
@@ -492,6 +527,7 @@ def _message(row: sqlite3.Row, dialog_id: str) -> dict[str, Any]:
         "text": row["text"],
         "status": row["status"],
         "path": row["path"],
+        "model": row["model"],
         "context": json.loads(row["context"]),
         "steps": json.loads(row["steps"]),
         "sources": json.loads(row["sources"]),

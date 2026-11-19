@@ -379,3 +379,11 @@ class AiSettings(Body):
     retention_days: StrictInt | None = None
     cloud_allowed: bool | None = None
     confirm_cloud: bool = False
+    # Основная и запасная модель: {provider, url, name, think, context, temperature, api_key};
+    # явный null — модель запуска службы.
+    model: dict[str, Any] | None = None
+    fallback: dict[str, Any] | None = None
+
+
+class AiModelCheck(Body):
+    config: dict[str, Any]
