@@ -33,13 +33,16 @@ def main(argv: list[str] | None = None) -> None:
         "--tls-dir", help="папка с server.crt и server.key; по умолчанию tls рядом с базой"
     )
     parser.add_argument("--backups", help="папка копий; по умолчанию backups рядом с базой")
+    parser.add_argument(
+        "--ai-url", help="адрес ИИ-службы на этом компьютере; по умолчанию http://127.0.0.1:8731"
+    )
     args = parser.parse_args(argv)
     folder = Path(args.tls_dir) if args.tls_dir else tls_folder(args.db)
     try:
         options = tls.server_options(args.host, folder)
     except EngineError as error:
         sys.exit(f"Ошибка: {error.message}")
-    app = create_app(args.db, backups=args.backups)
+    app = create_app(args.db, backups=args.backups, ai_url=args.ai_url)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info", **options)
 
 

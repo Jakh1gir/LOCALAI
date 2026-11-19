@@ -41,6 +41,7 @@ from engine.errors import (
     not_found,
 )
 from engine.sessions import Session
+from server import ai_link
 
 PREFIX = "/api/v1"
 COOKIE = "localai_session"
@@ -88,6 +89,11 @@ class Call:
     imports: Path | None = None
     # Хранилище файлов документов по SHA-256.
     files: Any = None
+    # Связь с ИИ-службой и делегированные доступы ИИ (server/ai_link.py).
+    ai: Any = None
+    grants: Any = None
+    # Запрос пришёл от ИИ-службы по делегированному доступу: чей вопрос и предел.
+    grant: Any = None
     conn: Any = None  # соединение для чтения или транзакция записи (``tx``)
     session: Session | None = None
     # Ответ на вход и выход: новый токен для cookie или "" — стереть cookie.
@@ -158,6 +164,9 @@ class Endpoint:
     # Тело — файл как есть (книга Excel), а не JSON; ``max_body`` — его предел.
     raw_body: bool = False
     max_body: int = MAX_BODY
+    # Изменяющий маршрут, который доступен ИИ по делегированному доступу:
+    # только создание черновика, который потом принимает человек (AI-09).
+    delegate: bool = False
     writes: bool = field(init=False)
 
     def __post_init__(self) -> None:
@@ -255,12 +264,19 @@ class Server:
     """Связывает объявления маршрутов с базой и правами."""
 
     def __init__(
-        self, db: Database, backups: Path, imports: Path | None = None, files: Any = None
+        self,
+        db: Database,
+        backups: Path,
+        imports: Path | None = None,
+        files: Any = None,
+        ai: Any = None,
     ) -> None:
         self.db = db
         self.backups = backups
         self.imports = imports or backups.parent / "imports"
         self.files = files
+        self.ai = ai
+        self.grants = ai_link.Grants()
         self.throttle = Throttle()
         self.changes = Changes()
         db.on_commit(self.changes.notify)
@@ -280,6 +296,8 @@ class Server:
                 backups=self.backups if endpoint.manual else None,
                 imports=self.imports,
                 files=self.files,
+                ai=self.ai,
+                grants=self.grants,
             )
             key = request.headers.get("idempotency-key")
             token = _token(request)
@@ -367,7 +385,10 @@ class Server:
         network.check(conn, call.client)  # список адресов действует и на открытые маршруты
         if endpoint.permission == "public":
             return
-        call.session = sessions.resolve(conn, token, text.now())
+        if token and token.startswith(ai_link.PREFIX):
+            self._delegate(endpoint, call, conn, token)
+        else:
+            call.session = sessions.resolve(conn, token, text.now())
         if endpoint.permission == "self":
             return
         if call.access.must_change_password:
@@ -381,6 +402,17 @@ class Server:
             raise _forbidden(endpoint.permission)
         if kind == "dataset" and not call.access.can(_dataset_of(endpoint, call, conn), name):
             raise _forbidden(endpoint.permission)
+
+    def _delegate(self, endpoint: Endpoint, call: Call, conn: Any, token: str) -> None:
+        """Запрос ИИ-службы от имени пользователя (API-10): его права, только чтение (AI-09)."""
+        call.grant = self.grants.use(token)
+        call.session = sessions.delegated(conn, call.grant.user_id)
+        if (endpoint.writes or endpoint.manual) and not endpoint.delegate:
+            raise EngineError(
+                "ai_read_only",
+                "ИИ только читает: изменение оформляется черновиком, который принимает человек",
+                status=FORBIDDEN,
+            )
 
 
 def _dataset_of(endpoint: Endpoint, call: Call, conn: Any) -> str:

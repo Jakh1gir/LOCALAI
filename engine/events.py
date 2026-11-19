@@ -13,6 +13,7 @@
 - сообщение чата — раздел «Общий чат»;
 - документ (загрузка, чтение, замена, привязки) — право «видеть» на его тип;
 - заметка знаний — тому, кто видит все её источники (SEC-06);
+- черновик изменения от ИИ — только тому, кто задал вопрос;
 - ККС и структура (поля, типы, справочники) — каждому вошедшему: без них
   экран не перестроится;
 - остальное (пользователи, роли, сети, копии, перенос) — администратору.
@@ -25,7 +26,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from engine import knowledge
+from engine import ai_memory, knowledge
 from engine.access import Access
 
 SCAN = 500  # строк журнала за один запрос: курсор двигается и по невидимым
@@ -88,6 +89,8 @@ def _visible(conn: sqlite3.Connection, row: sqlite3.Row, viewer: Access) -> bool
             "SELECT type_id FROM documents WHERE id = ?", (row["entity_id"],)
         ).fetchone()
         return found is not None and viewer.sees_documents(found["type_id"])
+    if kind == "ai_draft":  # черновик ИИ — только тому, кто задал вопрос
+        return ai_memory.draft_owner(conn, row["entity_id"]) == viewer.user_id
     if kind in _SHARED:
         return True
     return viewer.has("admin")

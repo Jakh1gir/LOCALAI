@@ -109,6 +109,23 @@ def resolve(conn: sqlite3.Connection, token: str | None, now: str) -> Session:
     )
 
 
+def delegated(conn: sqlite3.Connection, user_id: str) -> Session:
+    """Права пользователя для запроса ИИ-службы от его имени (API-10).
+
+    Токен такого доступа выдаёт и проверяет сервер (server/ai_link.py); здесь
+    проверяется, что учётная запись и роль всё ещё действуют, и читаются
+    права на этот момент (ROLE-09). Строки в ``sessions`` у него нет.
+    """
+    row = conn.execute(
+        "SELECT u.blocked_at, r.archived_at FROM users u JOIN roles r ON r.id = u.role_id"
+        " WHERE u.id = ?",
+        (user_id,),
+    ).fetchone()
+    if row is None or row["blocked_at"] or row["archived_at"]:
+        raise EngineError("session_invalid", "Сессия закрыта. Войдите заново", status=UNAUTHORIZED)
+    return Session(access=access.load(conn, user_id), token_hash="", expires_at="", stale=False)
+
+
 def touch(tx: Tx, session: Session) -> None:
     tx.conn.execute(
         "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", (tx.now, session.token_hash)
