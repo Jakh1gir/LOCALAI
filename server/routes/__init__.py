@@ -9,6 +9,7 @@ from server.routes import (
     graph,
     imports,
     kks,
+    knowledge,
     records,
     search,
     structure,
@@ -28,4 +29,5 @@ ENDPOINTS = [
     *imports.ENDPOINTS,
     *search.ENDPOINTS,
     *documents.ENDPOINTS,
+    *knowledge.ENDPOINTS,
 ]

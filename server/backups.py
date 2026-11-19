@@ -5,10 +5,17 @@
 - строка ``LOCALAI-BACKUP``, длина заголовка (4 байта) и заголовок JSON —
   время, версия схемы, ID базы, подпись, параметры ключа; заголовок читается
   без пароля, чтобы показать список копий;
-- кадры по 1 МиБ исходной базы: сжатие zlib, затем AES-256-GCM. Номер кадра и
+- кадры по 1 МиБ содержимого: сжатие zlib, затем AES-256-GCM. Номер кадра и
   признак последнего кадра входят в одноразовое число, заголовок — в
   проверяемые данные. Подмена заголовка, перестановка, обрезка или
   дописывание кадров обнаруживаются при восстановлении.
+
+Содержимое формата 2 — архив tar: ``database.sqlite3`` и файлы документов
+``files/<SHA-256>`` (KNOW-11). Формат 1 — только база; такие копии
+по-прежнему восстанавливаются. Файлы хранятся по хэшу, поэтому при
+восстановлении недостающие файлы добавляются в хранилище, а имеющиеся не
+трогаются: файлы текущих документов не пропадают, даже если восстановление
+потом отменят защитной копией.
 
 Ключ получается из пароля через Argon2id. Перед восстановлением текущее
 состояние упаковывается тем же паролем в защитную копию: ошибочное
@@ -18,6 +25,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -25,6 +33,7 @@ import secrets
 import shutil
 import sqlite3
 import struct
+import tarfile
 import zlib
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -39,7 +48,10 @@ from engine.errors import NOT_FOUND
 
 MAGIC = b"LOCALAI-BACKUP\n"
 SUFFIX = ".localai-backup"
-FORMAT = 1
+FORMAT = 2
+FORMATS = (1, 2)  # какие копии читаются
+DATABASE = "database.sqlite3"
+_FILE_RE = re.compile(r"^files/[0-9a-f]{64}$")
 CHUNK = 1024 * 1024
 # 64 МиБ памяти и три прохода на каждую попытку подобрать пароль.
 KDF = {"name": "argon2id", "memory_kib": 64 * 1024, "iterations": 3, "lanes": 4}
@@ -49,13 +61,18 @@ _MAX_HEADER = 64 * 1024
 
 
 def create(
-    db: Database, folder: Path, password: str, label: str | None, actor: Actor
+    db: Database,
+    folder: Path,
+    password: str,
+    label: str | None,
+    actor: Actor,
+    files: Path | None = None,
 ) -> dict[str, Any]:
-    """Новая зашифрованная копия базы. Чтение базы не мешает работе других."""
+    """Новая зашифрованная копия базы и файлов документов. Чтение не мешает работе других."""
     passwords.check_new(password)
     shown = _label(label)
     conn = db.connect()
-    path = _pack(conn, db.path, folder, password, shown)
+    path = _pack(conn, db.path, folder, password, shown, files=files)
     with db.write(actor) as tx:
         tx.audit(
             "backup.create",
@@ -93,6 +110,8 @@ def describe(path: Path) -> dict[str, Any]:
         "schema_version": header["schema_version"],
         "database_id": header.get("database_id"),
         "app_version": header.get("app_version"),
+        "files": header.get("files", 0),
+        "files_missing": header.get("files_missing", 0),
     }
 
 
@@ -105,26 +124,42 @@ def file_path(folder: Path, name: str) -> Path:
     return folder / name
 
 
-def restore(db: Database, folder: Path, name: str, password: str, actor: Actor) -> dict[str, Any]:
+def restore(
+    db: Database,
+    folder: Path,
+    name: str,
+    password: str,
+    actor: Actor,
+    files: Path | None = None,
+) -> dict[str, Any]:
     """Заменяет базу содержимым копии (SEC-09).
 
     1. Копия расшифровывается во временный файл и проверяется: целостность,
        это база LOCALAI, её схема не новее программы. Пока проверка не
        пройдена, рабочая база не тронута.
     2. Текущее состояние упаковывается тем же паролем в защитную копию.
-    3. Содержимое переносится в рабочую базу через API резервного
+    3. Недостающие файлы документов из копии добавляются в хранилище.
+    4. Содержимое переносится в рабочую базу через API резервного
        копирования SQLite: другие соединения сразу видят новую базу.
-    4. Схема доводится до текущей версии, все сессии закрываются: входить
+    5. Схема доводится до текущей версии, все сессии закрываются: входить
        нужно заново, по учётным записям из копии.
     """
     source = file_path(folder, name)
     work = _work(folder)
-    plain = work / f"restore-{_stamp()}.sqlite3"
+    stamp = _stamp()
+    payload = work / f"restore-{stamp}.payload"
+    plain = work / f"restore-{stamp}.sqlite3"
     try:
-        header = _decrypt(source, plain, password)
+        header = _decrypt(source, payload, password)
+        restored_files = _unpack(payload, plain, header) if header["format"] == 2 else None
+        if restored_files is None:
+            os.replace(payload, plain)
         restored_schema = _check_restorable(plain)
         with db.exclusive() as conn:
-            protective = _pack(conn, db.path, folder, password, PROTECTIVE_LABEL, protective=True)
+            protective = _pack(
+                conn, db.path, folder, password, PROTECTIVE_LABEL, protective=True, files=files
+            )
+            added = _add_files(payload, files) if restored_files else 0
             copy = sqlite3.connect(plain)
             try:
                 copy.backup(conn)
@@ -142,14 +177,17 @@ def restore(db: Database, folder: Path, name: str, password: str, actor: Actor) 
                     "created_at": header["created_at"],
                     "schema_version": restored_schema,
                     "protective_backup": protective.name,
+                    "files_added": added,
                 },
             )
     finally:
         plain.unlink(missing_ok=True)
+        payload.unlink(missing_ok=True)
     return {
         "restored": describe(source),
         "protective_backup": describe(protective),
         "schema_version": migrator.current_version(db.connect()),
+        "files_added": added,
     }
 
 
@@ -164,13 +202,16 @@ def _pack(
     label: str | None,
     *,
     protective: bool = False,
+    files: Path | None = None,
 ) -> Path:
     work = _work(folder)
     plain = snapshot.take(conn, db_path, "backup", work)  # проверенная копия
     target = _free_name(folder)
     part = target.with_name(target.name + ".part")
+    bundle = plain.with_suffix(".tar")
     try:
         meta = _meta(plain)
+        packed, missing = _bundle(plain, bundle, files)
         header = {
             "format": FORMAT,
             "created_at": text.now(),
@@ -179,15 +220,90 @@ def _pack(
             "kind": "protective" if protective else "manual",
             **meta,
             "size": plain.stat().st_size,
+            "files": packed,
+            "files_missing": missing,
             "kdf": {**KDF, "salt": _b64(secrets.token_bytes(16))},
             "nonce": _b64(secrets.token_bytes(7)),
         }
-        _encrypt(plain, part, header, password)
+        _encrypt(bundle, part, header, password)
         os.replace(part, target)
     finally:
         plain.unlink(missing_ok=True)
+        bundle.unlink(missing_ok=True)
         part.unlink(missing_ok=True)
     return target
+
+
+def _bundle(database: Path, bundle: Path, files: Path | None) -> tuple[int, int]:
+    """Архив: база и файлы, на которые она ссылается. Отсутствующий на диске файл считается."""
+    conn = sqlite3.connect(database)
+    try:
+        try:
+            hashes = [row[0] for row in conn.execute("SELECT sha256 FROM files ORDER BY sha256")]
+        except sqlite3.OperationalError:
+            hashes = []  # база до миграции документов
+    finally:
+        conn.close()
+    packed = missing = 0
+    with tarfile.open(bundle, "w", format=tarfile.PAX_FORMAT) as archive:
+        archive.add(database, arcname=DATABASE)
+        for sha in hashes:
+            path = files / sha[:2] / sha if files else None
+            if path is None or not path.is_file():
+                missing += 1
+                continue
+            archive.add(path, arcname=f"files/{sha}")
+            packed += 1
+    return packed, missing
+
+
+def _unpack(payload: Path, plain: Path, header: dict[str, Any]) -> int:
+    """База из архива во временный файл; файлы проверяются по именам и хэшам позже."""
+    try:
+        with tarfile.open(payload, "r:") as archive:
+            names = archive.getnames()
+            if names.count(DATABASE) != 1 or any(
+                name != DATABASE and not _FILE_RE.match(name) for name in names
+            ):
+                raise _corrupt()
+            member = archive.getmember(DATABASE)
+            source = archive.extractfile(member)
+            if source is None:
+                raise _corrupt()
+            with plain.open("wb") as out:
+                shutil.copyfileobj(source, out)
+            return len(names) - 1
+    except tarfile.TarError:
+        raise _corrupt() from None
+
+
+def _add_files(payload: Path, files: Path | None) -> int:
+    """Недостающие файлы документов — в хранилище; имя каждого сверяется с его хэшем."""
+    if files is None:
+        return 0
+    added = 0
+    with tarfile.open(payload, "r:") as archive:
+        for member in archive.getmembers():
+            if member.name == DATABASE:
+                continue
+            if not member.isfile() or not _FILE_RE.match(member.name):
+                raise _corrupt()
+            sha = member.name.removeprefix("files/")
+            target = files / sha[:2] / sha
+            if target.is_file():
+                continue
+            source = archive.extractfile(member)
+            if source is None:
+                raise _corrupt()
+            data = source.read()
+            if hashlib.sha256(data).hexdigest() != sha:
+                raise _corrupt()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            part = target.with_name(f"{sha}.restore.part")
+            part.write_bytes(data)
+            os.replace(part, target)
+            added += 1
+    return added
 
 
 def _encrypt(plain: Path, target: Path, header: dict[str, Any], password: str) -> None:
@@ -253,7 +369,7 @@ def _read_header(handle: BinaryIO) -> tuple[bytes, dict[str, Any]]:
         header = json.loads(raw)
     except ValueError:
         raise _corrupt() from None
-    if header.get("format") != FORMAT:
+    if header.get("format") not in FORMATS:
         raise EngineError(
             "backup_format", "Копия сделана другой версией формата; обновите программу"
         )

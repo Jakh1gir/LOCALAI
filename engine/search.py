@@ -11,7 +11,10 @@
 - **документы** — фрагменты прочитанных документов видимых типов: по одному
   на страницу, с отрывком текста вокруг найденного.
 
-Заметки знаний добавятся вместе с API знаний той же формой ответа.
+- **заметки** — подтверждённые заметки знаний, которые пользователь видит;
+- **словарь** — термины станции в строке запроса (KNOW-10): местное название
+  добавляет объекты ККС по официальному коду (``via: "glossary"``) и записи
+  с этими кодами.
 
 Права (ROLE-03): реестр без права «видеть» не участвует. В реестре, где у
 роли есть скрытые поля, поиск идёт перебором видимых значений, а не по
@@ -25,7 +28,7 @@ import sqlite3
 import time
 from typing import Any
 
-from engine import documents, fulltext, kks, kks_rules, links, query, structure, text
+from engine import documents, fulltext, kks, kks_rules, knowledge, links, query, structure, text
 from engine.access import Access
 from engine.errors import EngineError
 
@@ -54,6 +57,8 @@ def search(
     sites = _sites(conn, site_id)
     found_kks = _kks(conn, sites, needle, limit)
     records, more = _records(conn, viewer, sites, needle, limit)
+    glossary = knowledge.expand(conn, needle)
+    _expand(conn, viewer, sites, glossary, found_kks, records, limit)
     tokens = [token for token in text.fold(needle).split() if len(token) >= fulltext.MIN_TOKEN]
     return {
         "query": needle,
@@ -61,9 +66,46 @@ def search(
         "records": records,
         "more": {"records": more},
         "documents": documents.search(conn, viewer, tokens, limit),
-        "notes": [],
+        "notes": knowledge.search(conn, viewer, tokens, limit),
+        "glossary": glossary,
         "took_ms": round((time.perf_counter() - started) * 1000, 1),
     }
+
+
+def _expand(
+    conn: sqlite3.Connection,
+    viewer: Access,
+    sites: list[dict[str, Any]],
+    glossary: list[dict[str, Any]],
+    found_kks: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+    limit: int,
+) -> None:
+    """Словарь станции (KNOW-10): местное название ведёт к объектам по официальному коду."""
+    allowed = {site["id"]: site for site in sites}
+    seen_kks = {item["id"] for item in found_kks}
+    seen_records = {item["id"] for item in records}
+    for term in glossary:
+        for item in term["kks"]:
+            if item["site_id"] not in allowed or item["id"] in seen_kks:
+                continue
+            row = kks.get(conn, item["id"])
+            found_kks.insert(
+                0,
+                {
+                    **_kks_item(row, allowed[item["site_id"]]),
+                    "exact": True,
+                    "via": "glossary",
+                    "term": term["term"],
+                },
+            )
+            seen_kks.add(item["id"])
+            extra, _ = _records(conn, viewer, sites, item["code"], limit)
+            for record in extra:
+                if record["id"] not in seen_records and len(records) < limit:
+                    records.append({**record, "via": "glossary"})
+                    seen_records.add(record["id"])
+    del found_kks[limit:]
 
 
 def _sites(conn: sqlite3.Connection, site_id: str | None) -> list[dict[str, Any]]:

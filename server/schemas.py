@@ -293,3 +293,43 @@ class JobComplete(Body):
 class JobFail(Body):
     error: str
     retry: bool = True
+
+
+class NoteScope(Body):
+    kind: Literal["kks", "type", "station"] = "station"
+    id: str | None = None
+
+
+class NoteSource(Body):
+    kind: Literal["record", "document", "kks"]
+    id: str
+    page: str | None = None
+
+
+class NoteCreate(Body):
+    title: str
+    body: str
+    scope: NoteScope = NoteScope()
+    sources: list[NoteSource] = []
+    origin: Literal["user", "ai"] = "user"
+
+
+class NoteEdit(Body):
+    version: StrictInt
+    title: str | None = None
+    body: str | None = None
+    sources: list[NoteSource] | None = None
+
+
+class NoteConfirm(Body):
+    version: StrictInt
+
+
+class NoteReject(Body):
+    reason: str | None = None
+
+
+class GlossaryTerm(Body):
+    term: str
+    meaning: str
+    kks_ids: list[str] = []

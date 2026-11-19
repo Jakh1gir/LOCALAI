@@ -67,4 +67,6 @@ _KIND_NAMES = {
     "user": "пользователь",
     "network": "разрешённая сеть",
     "chat_message": "сообщение чата",
+    "knowledge_note": "заметка знаний",
+    "glossary_term": "термин словаря",
 }
