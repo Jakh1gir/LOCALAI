@@ -18,6 +18,9 @@ server = [
     "cryptography>=50",
     "openpyxl>=3.1",
 ]
+# ИИ-служба — на той же основе, что и сервер: Starlette и Uvicorn. Модель (Ollama) ставится
+# отдельно и в зависимости не входит (REL-01); с ней служба говорит по HTTP.
+ai = ["starlette>=1.7", "uvicorn>=0.54"]
 dev = ["pytest>=8", "anyio>=4"]
 
 [build-system]

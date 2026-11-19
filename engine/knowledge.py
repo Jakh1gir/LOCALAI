@@ -63,6 +63,22 @@ def create(
     return get(tx.conn, viewer, note_id)
 
 
+def check(
+    conn: sqlite3.Connection,
+    viewer: Access,
+    *,
+    title: Any,
+    body: Any,
+    scope: dict[str, Any],
+    sources: list[dict[str, Any]],
+) -> None:
+    """Те же проверки, что у ``create``, без записи: черновик заметки от ИИ."""
+    _title(title)
+    _body(body)
+    _scope(conn, scope)
+    _sources(conn, viewer, sources)
+
+
 def edit(
     tx: Tx,
     viewer: Access,

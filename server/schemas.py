@@ -333,3 +333,49 @@ class GlossaryTerm(Body):
     term: str
     meaning: str
     kks_ids: list[str] = []
+
+
+# ИИ (ТЗ 9) ---------------------------------------------------------------------
+
+
+class AiDialogCreate(Body):
+    title: str | None = None
+
+
+class AiDialogRename(Body):
+    title: str
+
+
+class AiContext(Body):
+    """Что открыто в интерфейсе (AI-06): реестр, выбранные записи, карточка ККС, документ."""
+
+    dataset_id: str | None = None
+    record_ids: list[str] = Field(default_factory=list, max_length=50)
+    kks_id: str | None = None
+    document_id: str | None = None
+
+
+class AiAsk(Body):
+    text: str
+    context: AiContext = AiContext()
+
+
+class AiFeedback(Body):
+    verdict: Literal["right", "wrong"]
+    correction: str | None = None
+
+
+class AiDraftCreate(Body):
+    kind: Literal["record_edit", "note"]
+    summary: str
+    payload: dict[str, Any]
+
+
+class AiDraftReject(Body):
+    reason: str | None = None
+
+
+class AiSettings(Body):
+    retention_days: StrictInt | None = None
+    cloud_allowed: bool | None = None
+    confirm_cloud: bool = False

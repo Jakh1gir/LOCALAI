@@ -2,6 +2,7 @@
 
 from server.routes import (
     access,
+    ai,
     auth,
     backups,
     chat,
@@ -30,4 +31,5 @@ ENDPOINTS = [
     *search.ENDPOINTS,
     *documents.ENDPOINTS,
     *knowledge.ENDPOINTS,
+    *ai.ENDPOINTS,
 ]
