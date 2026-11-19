@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import hmac
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from starlette.applications import Starlette
@@ -25,7 +26,8 @@ from starlette.routing import Route
 
 from ai import agent, probe
 from ai.api import Api, HttpTransport, Transport
-from ai.model import Config, Model, best, build
+from ai.model import Config, Model, Ollama, best, build
+from ai.runtime import OllamaRuntime
 
 HEADER = "x-localai-key"
 LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -40,9 +42,30 @@ def create_app(
     transport: Transport | None = None,
     cafile: str | None = None,
     loopback_only: bool = True,
+    runtime: OllamaRuntime | None = None,
 ) -> Starlette:
-    """``transport`` подменяет HTTP к серверу (тесты); ``loopback_only`` выключают только тесты."""
+    """``transport`` подменяет HTTP к серверу (тесты); ``loopback_only`` выключают только тесты.
+
+    ``runtime`` — Ollama под присмотром службы: запускается и останавливается
+    вместе с ней, прогревает выбранную основную модель.
+    """
     channel: Transport = transport or HttpTransport(server_url, cafile=cafile)
+
+    def warm(chosen: list[Model]) -> None:
+        primary = chosen[0]
+        ours = runtime is not None and isinstance(primary, Ollama) and primary.url == runtime.url
+        if ours and primary.available():
+            runtime.prefer(primary.name)
+
+    @asynccontextmanager
+    async def lifespan(_: Starlette) -> AsyncIterator[None]:
+        if runtime is not None:
+            runtime.start()
+        try:
+            yield
+        finally:
+            if runtime is not None:
+                await run_in_threadpool(runtime.stop)
 
     def guard(handler: Callable[[Request], Any]) -> Callable[[Request], Any]:
         async def checked(request: Request) -> Response:
@@ -64,8 +87,14 @@ def create_app(
         if isinstance(chosen, Response):
             return chosen
         shown = await run_in_threadpool(lambda: [item.status() for item in chosen])
+        await run_in_threadpool(warm, chosen)
         return JSONResponse(
-            {"service": "ai", "model": shown[0], "fallback": shown[1] if len(shown) > 1 else None}
+            {
+                "service": "ai",
+                "model": shown[0],
+                "fallback": shown[1] if len(shown) > 1 else None,
+                "runtime": runtime.status() if runtime is not None else None,
+            }
         )
 
     async def models(request: Request) -> Response:
@@ -103,16 +132,18 @@ def create_app(
         chosen = _chosen(payload, model)
         if isinstance(chosen, Response):
             return chosen
+        await run_in_threadpool(warm, chosen)
         return StreamingResponse(_lines(agent.answer(payload, api, chosen)),
                                  media_type="application/x-ndjson")  # fmt: skip
 
     return Starlette(
+        lifespan=lifespan,
         routes=[
             Route("/health", guard(health), methods=["GET", "POST"]),
             Route("/ask", guard(ask), methods=["POST"]),
             Route("/models", guard(models), methods=["POST"]),
             Route("/check", guard(check), methods=["POST"]),
-        ]
+        ],
     )
 
 

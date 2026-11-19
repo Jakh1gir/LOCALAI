@@ -24,9 +24,11 @@ import http.client
 import json
 import os
 import secrets
+import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -175,3 +177,36 @@ class AiLink:
                         yield json.loads(line)
         except (OSError, ValueError, http.client.HTTPException) as error:
             raise AiUnavailable(f"связь со службой ИИ прервалась: {error}") from None
+
+
+def start_service(
+    link: AiLink,
+    *,
+    key_file: Path,
+    server_url: str,
+    cafile: str | None = None,
+    log: Path | None = None,
+    command: list[str] | None = None,
+) -> Any:
+    """Запустить ИИ-службу в фоне и держать её под присмотром (вместе с сервером).
+
+    Служба уже работает (запущена отдельно) — она не трогается. Упала —
+    запускается снова. ИИ-служба в свою очередь сама запускает Ollama.
+    """
+    from ai.process import Supervisor  # служба ИИ и сервер ставятся вместе
+
+    port = urllib.parse.urlsplit(link.url).port or 8731
+    program = command or [
+        sys.executable, "-m", "ai", "--key-file", str(key_file),
+        "--server", server_url, "--port", str(port),
+        *(["--cafile", cafile] if cafile else []),
+    ]  # fmt: skip
+    supervisor = Supervisor(
+        "ИИ-служба", program, ready=lambda: link.health() is not None, log=log, start_timeout=30
+    )
+    supervisor.start()
+    return supervisor
+
+
+def is_local(url: str) -> bool:
+    return urllib.parse.urlsplit(url).hostname in ("127.0.0.1", "::1", "localhost")

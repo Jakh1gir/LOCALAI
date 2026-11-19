@@ -17,6 +17,7 @@ from pathlib import Path
 import uvicorn
 
 from ai import model as models
+from ai.runtime import KEEP_ALIVE, RECOMMENDED, OllamaRuntime
 from ai.service import LOOPBACK, create_app
 
 DEFAULT_PORT = 8731
@@ -41,6 +42,19 @@ def main(argv: list[str] | None = None) -> None:
         default="http://127.0.0.1:8080",
         help="адрес OpenAI-совместимого сервера (llama.cpp, vLLM, LM Studio)",
     )
+    parser.add_argument("--ollama-bin", help="путь к ollama; по умолчанию ищется сам")
+    parser.add_argument(
+        "--no-ollama-start",
+        action="store_true",
+        help="не запускать Ollama самой службой (по умолчанию запускается в фоне)",
+    )
+    parser.add_argument(
+        "--pull",
+        default=",".join(RECOMMENDED),
+        help="модели, которые скачать в фоне, если их нет; пусто — не скачивать",
+    )
+    parser.add_argument("--keep-alive", default=KEEP_ALIVE, help="сколько держать модель в памяти")
+    parser.add_argument("--log-dir", help="папка журналов Ollama; по умолчанию рядом с ai.key")
     args = parser.parse_args(argv)
     if args.host not in LOOPBACK:
         sys.exit("Ошибка: ИИ-служба слушает только этот компьютер (127.0.0.1)")
@@ -51,7 +65,19 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(f"Ошибка: {error}")
     if not key:
         sys.exit("Ошибка: файл ключа пуст")
-    app = create_app(server_url=args.server, key=key, model=chosen, cafile=args.cafile)
+    logs = Path(args.log_dir) if args.log_dir else Path(args.key_file).resolve().parent / "logs"
+    runtime = OllamaRuntime(
+        args.ollama,
+        autostart=not args.no_ollama_start,
+        binary=args.ollama_bin,
+        pull=tuple(item.strip() for item in args.pull.split(",") if item.strip()),
+        keep_alive=args.keep_alive,
+        log=logs / "ollama.log",
+        choose=lambda: chosen.name if chosen.available() else None,
+    )
+    app = create_app(
+        server_url=args.server, key=key, model=chosen, cafile=args.cafile, runtime=runtime
+    )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 

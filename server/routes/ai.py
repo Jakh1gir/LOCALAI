@@ -47,6 +47,7 @@ def status(call: Call) -> dict[str, Any]:
         "service": health is not None,
         "model": (health or {}).get("model"),
         "fallback": (health or {}).get("fallback"),
+        "runtime": (health or {}).get("runtime"),
         "cloud_allowed": bool(prefs.get("cloud_allowed")),
         "limits": {"steps": MAX_STEPS, "calls": ai_link.MAX_CALLS},
     }
