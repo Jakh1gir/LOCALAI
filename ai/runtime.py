@@ -29,16 +29,17 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ai.model import LOOPBACK, OLLAMA_URL
+from ai.model import EMBED, LOOPBACK, OLLAMA_URL
 from ai.process import Supervisor
 
 KEEP_ALIVE = "30m"
-RECOMMENDED = ("qwen3.5:9b", "qwen3.5:4b")  # решение владельца для 8 ГБ (19.11.2026)
+RECOMMENDED = ("qwen3.5:9b", "qwen3.5:4b", EMBED)  # 8 ГБ (19.11.2026) и модель векторов
 SETTINGS = {
     "OLLAMA_FLASH_ATTENTION": "1",  # меньше памяти на окно контекста
     "OLLAMA_KV_CACHE_TYPE": "q8_0",  # кэш контекста вдвое меньше — 32K помещаются в 8 ГБ
     "OLLAMA_CONTEXT_LENGTH": "32768",
-    "OLLAMA_MAX_LOADED_MODELS": "1",  # на 8 ГБ — одна модель в памяти
+    # Модель чата и модель векторов (она на процессоре) — вместе, без вытеснения друг друга.
+    "OLLAMA_MAX_LOADED_MODELS": "2",
 }
 
 

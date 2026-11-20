@@ -30,5 +30,6 @@ python -m server --db localai.sqlite3
 | `magnet_store.py` | Запись раскладки магнита: типы, поля, реестры, записи по уникальному ключу |
 | `xlsx.py` | Чтение листа Excel с заполнением объединённых ячеек |
 | `ai_link.py` | Связь с ИИ-службой: ключ `ai.key`, делегированный доступ ИИ (только чтение, предел обращений), поток ответа, запуск службы в фоне вместе с сервером |
+| `vector_index.py` | Поиск по смыслу: дополнение SQLite sqlite-vec (файл `vectors.sqlite3`), запасной — в памяти; проверка `python -m server.admin --db … check-vectors` |
 
 Контракт: [docs/contract/api-v1.md](../docs/contract/api-v1.md). Задачи: [docs/STATE.md](../docs/STATE.md).

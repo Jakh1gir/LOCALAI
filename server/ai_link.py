@@ -135,6 +135,13 @@ class AiLink:
     def models(self, config: dict[str, Any]) -> dict[str, Any]:
         return self._call("/models", {"config": config}, 15.0)
 
+    def embed(
+        self, texts: list[str], config: dict[str, Any] | None, *, timeout: float = 120.0
+    ) -> dict[str, Any]:
+        """Векторы текстов моделью векторов: ``{model, dim, vectors}``; пустой список — только
+        какая модель ответит (``model: null`` — модели векторов нет)."""
+        return self._call("/embed", {"texts": texts, "config": config}, timeout)
+
     def check(self, config: dict[str, Any]) -> dict[str, Any]:
         return self._call("/check", {"config": config}, ANSWER_TIMEOUT)
 

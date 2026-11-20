@@ -399,7 +399,8 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   - В карточке документа привязка к записи без права на реестр показана как `{kind: "record", id, access: false}` — «нет доступа».
   - Документы записи или ККС: `GET /documents?target_kind=record&target_id=…`.
 - **Упоминания** (KNOW-03). Коды ККС и коды сигналов, найденные в тексте и известные каталогу, становятся предложениями (`state: "proposed"`) со страницами и числом вхождений. Связь «документ ↔ ККС» появляется только после `confirm`. Отклонённое и подтверждённое при новом чтении сохраняются, предложения пересчитываются.
-- **Поиск.** `GET /search` возвращает `documents: [{document_id, title, type, page, snippet}]` — по одной лучшей странице документа, только видимых типов и текущих версий.
+- **Поиск.** `GET /search` возвращает `documents: [{document_id, title, type, page, snippet, via?, similarity?}]` — по одной лучшей странице документа, только видимых типов и текущих версий; с `mode=hybrid` — и по смыслу (см. «Общий поиск»).
+- **Векторы** (KNOW-02): сервер в фоне отправляет фрагменты действующих версий ИИ-службе и хранит их векторы; сменилась модель векторов — фрагменты пересчитываются. Ход — `GET /ai/status`, поле `vectors`.
 - **Журнал:** `document.create`, `document.replace`, `document.read`, `document.archive`, `document.link`, `document.unlink`, `document.mention`.
 
 ## Знания
@@ -461,7 +462,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 
 | Метод и путь | Ответ |
 | --- | --- |
-| `GET /search?q=&limit=&site_id=` | `{query, kks, records, more: {records}, documents, notes, glossary, took_ms}` |
+| `GET /search?q=&limit=&site_id=&mode=` | `{query, kks, records, more: {records}, documents, notes, glossary, meaning, took_ms}` |
 
 Строка Ctrl+K в оболочке (ТЗ 5.1, 11.1). Право — `session`. `limit` — от 1 до 50, по умолчанию 20; `site_id` сужает поиск до площадки.
 
@@ -476,6 +477,12 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   - реестр без права `view` не участвует;
   - в реестре со скрытыми от роли полями поиск идёт перебором видимых значений, поэтому совпадение по скрытому полю не выдаёт запись.
 - `documents` — страницы прочитанных документов видимых типов (см. «Документы»).
+- **Поиск по смыслу** (AI-05): `mode=hybrid` — документы ищутся и по словам, и по смыслу; по умолчанию `mode=text` — только по словам (строка Ctrl+K).
+  - Вектор строки считает модель векторов в ИИ-службе. Два списка — по словам и по смыслу — сливаются по рангам: найденное обоими способами идёт выше.
+  - У документа `via`: `text` — по словам, `meaning` — по смыслу (общих слов может не быть: «давление» находит «напор»), `both`; `similarity` — сходство по смыслу от −1 до 1 или `null`.
+  - `meaning: true` — смысл участвовал. `false` — поиск шёл только по словам: не просили, ИИ-служба или модель векторов недоступны.
+  - Права, архив и версия документа — те же, что у поиска по словам.
+  - Неизвестный `mode` — `400 search_mode`.
 - `notes` — подтверждённые заметки знаний, видимые пользователю: `{id, title, scope, snippet}`.
 - `glossary` — термины словаря станции в строке; их объекты ККС идут первыми в `kks` с `via: "glossary"`, записи с их кодами — в `records` с `via: "glossary"` (см. «Знания»).
 - **Ошибки:** пустая строка — `400 search_empty`, длиннее 200 знаков — `400 search_too_long`.
@@ -557,6 +564,31 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   Журнал, перенесённый из Local_DB, событий не даёт.
 - Источник событий — журнал аудита. `cursor` — номер его строки, поэтому пропущенное после потери связи догружается по курсору.
 
+## Схемы
+
+Граф листа схемы (ТЗ 10, VIS-04…06, VIS-09). Строит его процесс схем (vision) при разборе документа и отдаёт вместе с текстом страниц: `POST /jobs/{id}/complete` принимает поле `sheets`. Права — как у документа: лист не виден тому, кто не видит документ (`404`).
+
+| Метод и путь | Тело запроса | Ответ |
+| --- | --- | --- |
+| `GET /documents/{id}/sheets` | — | `{document_id, version, items: [{page, width, height, source, parser, elements, edges, proposed}]}` |
+| `GET /documents/{id}/sheets/{page}` | — | `{document_id, title, page, width, height, source, parser, elements, edges}` |
+| `GET /documents/{id}/sheets/{page}/connections?element=&depth=` | — | лист и `{start, elements: [… distance], edges}` |
+| `GET /documents/{id}/sheets/{page}/path?from=&to=` | — | лист и `{found, elements, edges}` — путь по порядку |
+| `POST /documents/{id}/sheets/{page}/elements/{eid}/decision` | `{decision: "confirm" \| "reject"}` | элемент — раздел «Документы» |
+| `GET /kks/{id}/sheets` | — | `{items: [{document_id, title, page, source, element, state, confidence}]}` |
+
+- **От процесса схем** — `sheets: [{page, width, height, parser, source, elements, edges}]`:
+  - `source` — `vector` (векторный PDF, DXF) или `scan`: по скану соединения — подсказка, а не факт;
+  - `parser` — разборщик и его версия (VIS-10);
+  - элемент — `{id, kind, label, bbox: [x0, y0, x1, y1]}`, `kind`: `label`, `symbol`, `terminal`, `wire`, `other`; координаты — в единицах листа (`width`, `height`);
+  - соединение — `{from, to, kind?, points?}`; соединение с несуществующим элементом или с самим собой отбрасывается; `points` — линия для подсветки.
+  - Повторный разбор той же версии заменяет граф; новая версия документа — новый граф. Лист — до 20 000 элементов и 40 000 соединений; неверный граф — `400 sheet_invalid`.
+- **Элемент в ответе** — `{id, kind, label, bbox, kks}`; `kks` — `{id, code, state, confidence}` или `null`.
+- **ККС на листе** (VIS-05): коды в надписях сопоставляются с каталогом при приёме графа; `confidence` — 1 (код), 0,9 (псевдоним), 0,8 (код сигнала); из нескольких кодов в надписи берётся самый уверенный. `state`: `proposed`; `confirmed` — подтверждено человеком или документ уже привязан к объекту; `rejected`. Подтверждение создаёт привязку документа к ККС; отклонённое не показывается в `/kks/{id}/sheets`.
+- **Элемент в запросе** (`element`, `from`, `to`) — номер элемента, код ККС или надпись (без учёта регистра; затем — часть надписи). Не найден — `404`. `depth` — 1–5 (`400 sheet_depth`).
+- **Путь** — кратчайший по числу соединений; `found: false`, если элементы не связаны. `edges` пути — линии для подсветки на листе (AT-31).
+- **ИИ** — инструмент `sheet_graph`: листы объекта ККС и соединения на них, соединения элемента или путь между элементами; лист по скану помечен (`by_scan`).
+
 ## ИИ
 
 Вопросы к ИИ, диалоги, оценки ответов и черновики изменений (ТЗ 9). Все маршруты — раздел `ai` («ИИ»); настройки и выгрузка оценок — «Администрирование».
@@ -565,7 +597,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 
 | Метод и путь | Тело запроса | Ответ |
 | --- | --- | --- |
-| `GET /ai/status` | — | `{service, model, fallback, runtime, cloud_allowed, limits: {steps, calls}}`; модель — `{provider, name, configured, available, remote}` или `null` |
+| `GET /ai/status` | — | `{service, model, fallback, embedding, vectors: {model, done, total, index}, runtime, cloud_allowed, limits: {steps, calls}}`; модель — `{provider, name, configured, available, remote}` или `null` |
 | `GET /ai/schema` | — | `{sites, datasets: [{id, name, site_id, site, type, can_edit, fields}]}` — что пользователь может спрашивать |
 | `GET /ai/dialogs?limit=` | — | `{items: [{id, title, created_at, updated_at, messages}]}` — свои, свежие сначала |
 | `POST /ai/dialogs` | `{title?}` | диалог, `201` |
@@ -580,8 +612,8 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | `GET /ai/drafts/{id}` | — | черновик |
 | `POST /ai/drafts/{id}/accept` | — | черновик |
 | `POST /ai/drafts/{id}/reject` | `{reason?}` | черновик |
-| `GET /ai/settings` | — | `{retention_days, cloud_allowed, model, fallback}` — «Администрирование» |
-| `PUT /ai/settings` | `{retention_days?, cloud_allowed?, confirm_cloud?, model?, fallback?}` | настройки — «Администрирование» |
+| `GET /ai/settings` | — | `{retention_days, cloud_allowed, model, fallback, embedding}` — «Администрирование» |
+| `PUT /ai/settings` | `{retention_days?, cloud_allowed?, confirm_cloud?, model?, fallback?, embedding?}` | настройки — «Администрирование» |
 | `GET /ai/models?provider=&url=&name=` | — | `{items: [{name, size_gb, parameters, quantization, family, capabilities, context}], auto}` — «Администрирование» |
 | `POST /ai/models/check` | `{config}` | `{model, available, score, checks, first_token_ms, took_ms, answer, error}` — «Администрирование» |
 
@@ -612,7 +644,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   - Принять может только спросивший. Правка выполняется от его имени и с его правами: в журнале записи автор — человек. Если запись изменилась после предложения — `409 version_conflict`, черновик остаётся предложенным. Принятая заметка становится заметкой знаний в состоянии `proposed` с `origin: "ai"`. Принятая связь создаёт привязку документа. Принятое сопоставление ничего не импортирует: интерфейс подставляет `payload` в шаг «сопоставление» мастера (`POST /imports/{id}/plan`), и план строит человек.
   - Принятый или отклонённый черновик повторно не решается: `409 ai_draft_decided`.
   - ИИ получает инструмент `propose`, только если сам вопрос просит изменить данные: текст документов и записей включить его не может (AT-40).
-- **Инструменты ИИ** (ТЗ 9.1): `schema`, `search`, `search_documents`, `kks_card` (карточка, записи и привязанные документы), `record` (с `history` — кто и что менял), `query`, `aggregate` (подсчёт, группы; `stat`: `min`, `max`, `sum`, `avg` через `…/records/stats`), `trace`, `import_preview` (только при открытом мастере импорта, `context.import_id`), `propose`.
+- **Инструменты ИИ** (ТЗ 9.1): `schema`, `search`, `search_documents`, `kks_card` (карточка, записи и привязанные документы), `record` (с `history` — кто и что менял), `query`, `aggregate` (подсчёт, группы; `stat`: `min`, `max`, `sum`, `avg` через `…/records/stats`), `trace`, `sheet_graph` (граф листа, см. «Схемы»), `import_preview` (только при открытом мастере импорта, `context.import_id`), `propose`.
 - **Диалоги** видит и удаляет только владелец; чужой диалог, сообщение и черновик — `404`, в том числе для администратора. Срок хранения — `retention_days` (1–3650, по умолчанию 180, KNOW-12).
 - **Оценка** (KNOW-05) хранится с вопросом, ответом и источниками и переживает удаление диалога.
 - **Модель** (AI-01) — настройка, а не код. `model` — основная, `fallback` — запасная: она отвечает, если основная не установлена, не запущена или отказала до первого слова. `null` — модель, с которой запущена служба. Настройка модели:
@@ -622,8 +654,10 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   - `think` — размышление: `auto` (как решит модель), `off`, `on`, `low`, `medium`, `high`;
   - `context` — окно контекста в токенах, 2048–262144, по умолчанию 32768. У Ollama окно по умолчанию мало для схемы реестров и результатов инструментов;
   - `temperature` — 0–2, по умолчанию 0,2;
+  - `gpu` — `false`: считать на процессоре (у модели векторов по умолчанию — чтобы не вытеснять модель чата из видеопамяти);
   - `api_key` — ключ доступа, если сервер модели его требует. Наружу не отдаётся: в ответе вместо него `api_key_set`. `null` или отсутствие ключа при том же `url` сохраняет прежний.
   Неверная настройка — `400 ai_model_invalid`. Смена модели действует со следующего вопроса, без перезапуска службы.
+- **Модель векторов** (`embedding`, AI-05) — та же настройка модели; `null` — модель запуска службы, по умолчанию `qwen3-embedding:0.6b` в Ollama на процессоре; `{"provider": "none"}` — поиск по смыслу выключен. `vectors` в состоянии — сколько фрагментов действующих документов уже с векторами этой модели; `index` — чем ищется: `{kind: "extension", version, rows}` — дополнение sqlite-vec, `{kind: "memory", rows, extension}` — в памяти, `extension` — почему не загрузилось дополнение.
 - **Список моделей** — что установлено у поставщика, с умениями (`tools`, `thinking`, `vision`) и размером; `auto` — какую модель служба выберет сама.
 - **Проверка модели** — вопрос станции по-русски с инструментом `kks_card` и вымышленным результатом. `checks`:
   - `tool_call` — вызвала инструмент с правильным кодом;
@@ -643,7 +677,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 
 Сервер (`python -m server`) запускает службу в фоне сам и перезапускает, если она упала; `--no-ai-start` — не запускать. Служба при запуске:
 - запускает `ollama serve` в фоне, если Ollama не отвечает, — с flash attention, сжатым кэшем контекста (`q8_0`) и окном 32 768; упал — запускает снова; уже запущенный Ollama не трогает;
-- скачивает недостающие модели из `--pull` (по умолчанию `qwen3.5:9b`, `qwen3.5:4b`);
+- скачивает недостающие модели из `--pull` (по умолчанию `qwen3.5:9b`, `qwen3.5:4b` и модель векторов `qwen3-embedding:0.6b`);
 - загружает основную модель в память и держит её `--keep-alive` (30 минут); сменилась основная модель — прогревает новую.
 Журналы — `logs/ai.log` и `logs/ollama.log` рядом с базой.
 
@@ -655,6 +689,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | `/ask` | `POST` | поток NDJSON: `thinking`, `tool`, `text`, `draft`, последней — `{type: "done", status, path, model, steps, sources, calls, took_ms}` |
 | `/models` | `POST {config}` | `{items, auto}` |
 | `/check` | `POST {config}` | результат проверки модели |
+| `/embed` | `POST {texts, config?}` | `{model, dim, vectors}`; без текстов — какая модель ответит; модели нет — `model: null` |
 
 Тело `/ask` от сервера: `{question, context, history, token, cloud_allowed, models: {primary, fallback}, limits: {steps, calls}}`.
 
