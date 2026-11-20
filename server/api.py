@@ -96,6 +96,8 @@ class Call:
     grants: Any = None
     # Запрос пришёл от ИИ-службы по делегированному доступу: чей вопрос и предел.
     grant: Any = None
+    # Индекс векторов фрагментов в памяти (server/vector_index.py).
+    vectors: Any = None
     conn: Any = None  # соединение для чтения или транзакция записи (``tx``)
     session: Session | None = None
     # Ответ на вход и выход: новый токен для cookie или "" — стереть cookie.
@@ -272,8 +274,10 @@ class Server:
         imports: Path | None = None,
         files: Any = None,
         ai: Any = None,
+        vectors: Any = None,
     ) -> None:
         self.db = db
+        self.vectors = vectors
         self.backups = backups
         self.imports = imports or backups.parent / "imports"
         self.files = files
@@ -300,6 +304,7 @@ class Server:
                 files=self.files,
                 ai=self.ai,
                 grants=self.grants,
+                vectors=self.vectors,
             )
             key = request.headers.get("idempotency-key")
             token = _token(request)

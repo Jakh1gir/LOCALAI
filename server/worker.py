@@ -1,18 +1,25 @@
-"""Исполнитель задач сервера: чтение документов простых форматов (KNOW-01).
+"""Исполнитель задач сервера: чтение документов (KNOW-01) и векторы фрагментов (KNOW-02).
 
 Задача берётся в короткой транзакции, файл читается вне транзакции
 (API-07), текст сохраняется в следующей короткой транзакции. В работающем
 сервере исполнитель — фоновый поток; он просыпается после каждой записи в
 базу и раз в несколько секунд, если записей нет.
+
+Векторы фрагментов считает ИИ-служба (модель векторов); исполнитель
+отправляет ей фрагменты пачками по ``vectors.BATCH`` вне транзакции и
+сохраняет ответ. Служба недоступна — векторы досчитаются, когда она
+появится; поиск по словам работает и без них.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+import time
+from typing import Any
 
-from engine import SYSTEM, Database, EngineError, documents, jobs
-from server import readers
+from engine import SYSTEM, Database, EngineError, ai_memory, documents, jobs, vectors
+from server import ai_link, readers
 from server.files import FileStore
 
 log = logging.getLogger("localai.worker")
@@ -69,11 +76,60 @@ def _failed(db: Database, job: dict, message: str, *, retry: bool) -> None:
         )
 
 
+class Embedder:
+    """Векторы фрагментов без вектора текущей модели — через ИИ-службу."""
+
+    RECHECK = 60.0  # секунд между вопросами службе «какая модель векторов», если работы нет
+
+    def __init__(self, db: Database, link: Any) -> None:
+        self.db, self.link = db, link
+        self.model: str | None = None
+        self._checked = 0.0
+
+    def run(self, batches: int = 20) -> int:
+        """Посчитать до ``batches`` пачек; число сохранённых векторов."""
+        if self.link is None:
+            return 0
+        with self.db.read() as conn:
+            config = ai_memory.settings(conn, secrets=True).get("embedding")
+            idle = self.model is not None and not vectors.pending(conn, self.model, 1)
+        if idle and time.monotonic() - self._checked < self.RECHECK:
+            return 0
+        try:
+            self.model = self.link.embed([], config, timeout=5.0).get("model")
+            self._checked = time.monotonic()
+            if not self.model:
+                return 0
+            saved = 0
+            for _ in range(batches):
+                with self.db.read() as conn:
+                    items = vectors.pending(conn, self.model)
+                if not items:
+                    break
+                found = self.link.embed([item["text"] for item in items], config)
+                if found.get("model") != self.model:
+                    self.model = found.get("model")  # модель сменилась на ходу
+                    break
+                with self.db.write(SYSTEM) as tx:
+                    saved += vectors.store(
+                        tx,
+                        self.model,
+                        [(item["seq"], vector) for item, vector in zip(items, found["vectors"],
+                                                                       strict=True)],
+                    )  # fmt: skip
+            return saved
+        except (ai_link.AiUnavailable, EngineError, KeyError, TypeError, ValueError) as error:
+            log.info("Векторы фрагментов отложены: %s", error)
+            self._checked = time.monotonic()
+            return 0
+
+
 class Worker:
     """Фоновый поток сервера: просыпается по записи в базу или по таймеру."""
 
-    def __init__(self, db: Database, files: FileStore) -> None:
+    def __init__(self, db: Database, files: FileStore, ai: Any = None) -> None:
         self.db, self.files = db, files
+        self.embedder = Embedder(db, ai)
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -92,8 +148,11 @@ class Worker:
     def _loop(self) -> None:
         while not self._stop.is_set():
             self._wake.clear()
+            busy = False
             try:
                 run_pending(self.db, self.files)
+                busy = self.embedder.run() > 0
             except Exception:  # поток не должен умирать: ошибка — в лог, следующий круг
                 log.exception("Исполнитель задач: сбой круга")
-            self._wake.wait(IDLE)
+            if not busy:
+                self._wake.wait(IDLE)

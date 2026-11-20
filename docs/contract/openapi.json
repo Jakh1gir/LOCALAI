@@ -237,6 +237,19 @@
             "title": "Confirm Cloud",
             "type": "boolean"
           },
+          "embedding": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Embedding"
+          },
           "fallback": {
             "anyOf": [
               {
@@ -12430,6 +12443,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12487,7 +12508,7 @@
             "description": "Ошибка: код, текст на русском, поле"
           }
         },
-        "summary": "ККС и записи всех видимых реестров по одной строке; документы и заметки — с этапа 4.",
+        "summary": "ККС, записи, документы, заметки и словарь по одной строке.",
         "tags": [
           "Поиск"
         ],

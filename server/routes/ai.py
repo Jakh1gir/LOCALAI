@@ -18,7 +18,7 @@ from typing import Any
 from starlette.responses import StreamingResponse
 
 from ai.model import Config
-from engine import EngineError, ai_memory, structure
+from engine import EngineError, ai_memory, structure, vectors
 from engine.access import Access
 from engine.database import Database
 from engine.errors import FORBIDDEN, UNAVAILABLE
@@ -48,13 +48,27 @@ def status(call: Call) -> dict[str, Any]:
         "model": (health or {}).get("model"),
         "fallback": (health or {}).get("fallback"),
         "runtime": (health or {}).get("runtime"),
+        "embedding": (health or {}).get("embedding"),
+        "vectors": {
+            **vectors.counts(call.conn, _embedding_name(health)),
+            "index": call.vectors.status() if call.vectors is not None else None,
+        },
         "cloud_allowed": bool(prefs.get("cloud_allowed")),
         "limits": {"steps": MAX_STEPS, "calls": ai_link.MAX_CALLS},
     }
 
 
 def _models(prefs: dict[str, Any]) -> dict[str, Any]:
-    return {"primary": prefs.get("model"), "fallback": prefs.get("fallback")}
+    return {
+        "primary": prefs.get("model"),
+        "fallback": prefs.get("fallback"),
+        "embedding": prefs.get("embedding"),
+    }
+
+
+def _embedding_name(health: dict[str, Any] | None) -> str | None:
+    shown = (health or {}).get("embedding") or {}
+    return shown.get("name") if shown.get("available") else None
 
 
 def schema(call: Call) -> dict[str, Any]:
@@ -307,7 +321,7 @@ def put_settings(call: Call) -> dict[str, Any]:
     before = ai_memory.settings(call.tx.conn, secrets=True)
     models = {
         key: _model_config(getattr(body, key), before.get(key), key)
-        for key in ("model", "fallback")
+        for key in ai_memory.MODEL_KEYS
         if key in body.model_fields_set
     }
     return ai_memory.set_settings(

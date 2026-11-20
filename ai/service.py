@@ -5,7 +5,8 @@
 - ``POST /ask`` — вопрос с делегированным токеном, ответ потоком NDJSON;
 - ``GET|POST /health`` — служба жива, какие модели и доступны ли они;
 - ``POST /models`` — установленные модели поставщика с умениями;
-- ``POST /check`` — проверка модели на вопросе станции.
+- ``POST /check`` — проверка модели на вопросе станции;
+- ``POST /embed`` — векторы текстов для поиска по смыслу.
 
 Служба ничего не хранит: диалоги и ответы сохраняет сервер.
 """
@@ -26,7 +27,7 @@ from starlette.routing import Route
 
 from ai import agent, probe
 from ai.api import Api, HttpTransport, Transport
-from ai.model import Config, Model, Ollama, best, build
+from ai.model import EMBED, Config, Model, ModelError, Ollama, best, build
 from ai.runtime import OllamaRuntime
 
 HEADER = "x-localai-key"
@@ -43,6 +44,7 @@ def create_app(
     cafile: str | None = None,
     loopback_only: bool = True,
     runtime: OllamaRuntime | None = None,
+    embedding: Config | None = None,
 ) -> Starlette:
     """``transport`` подменяет HTTP к серверу (тесты); ``loopback_only`` выключают только тесты.
 
@@ -50,6 +52,7 @@ def create_app(
     вместе с ней, прогревает выбранную основную модель.
     """
     channel: Transport = transport or HttpTransport(server_url, cafile=cafile)
+    vectors_default = embedding or Config(name=EMBED, gpu=False)
 
     def warm(chosen: list[Model]) -> None:
         primary = chosen[0]
@@ -83,16 +86,25 @@ def create_app(
 
     async def health(request: Request) -> Response:
         """Жива ли служба; с телом ``{models}`` — состояние моделей из настроек сервера."""
-        chosen = _chosen(await _json(request), model)
+        body = await _json(request)
+        chosen = _chosen(body, model)
         if isinstance(chosen, Response):
             return chosen
-        shown = await run_in_threadpool(lambda: [item.status() for item in chosen])
+        try:
+            raw = (body.get("models") or {}).get("embedding")
+            vectors_model = build(Config.parse(raw) if raw else vectors_default)
+        except (ValueError, TypeError) as error:
+            return _error(400, "ai_model_invalid", str(error))
+        shown = await run_in_threadpool(
+            lambda: [item.status() for item in [*chosen, vectors_model]]
+        )
         await run_in_threadpool(warm, chosen)
         return JSONResponse(
             {
                 "service": "ai",
                 "model": shown[0],
-                "fallback": shown[1] if len(shown) > 1 else None,
+                "fallback": shown[1] if len(shown) > 2 else None,
+                "embedding": shown[-1],
                 "runtime": runtime.status() if runtime is not None else None,
             }
         )
@@ -143,8 +155,43 @@ def create_app(
             Route("/ask", guard(ask), methods=["POST"]),
             Route("/models", guard(models), methods=["POST"]),
             Route("/check", guard(check), methods=["POST"]),
+            Route("/embed", guard(_embedder(vectors_default)), methods=["POST"]),
         ],
     )
+
+
+def _embedder(default: Config) -> Callable[[Request], Any]:
+    """``POST /embed``: векторы текстов моделью векторов."""
+
+    async def embed(request: Request) -> Response:
+        """Векторы текстов моделью векторов (KNOW-02, AI-05); без текстов — какая модель."""
+        body = await _json(request)
+        texts = body.get("texts") or []
+        if (
+            not isinstance(texts, list)
+            or len(texts) > 64
+            or not all(isinstance(item, str) for item in texts)
+        ):
+            return _error(400, "ai_embed_invalid", "texts — до 64 строк")
+        try:
+            raw = body.get("config")
+            config = Config.parse(raw) if raw else default
+        except (ValueError, TypeError) as error:
+            return _error(400, "ai_model_invalid", str(error))
+        found = build(config)
+        if not await run_in_threadpool(found.available):
+            return JSONResponse({"model": None, "dim": None, "vectors": []})
+        if not texts:
+            return JSONResponse({"model": found.name, "dim": None, "vectors": []})
+        try:
+            result = await run_in_threadpool(found.embed, texts)
+        except ModelError as error:
+            return _error(503, "ai_embed_failed", str(error))
+        return JSONResponse(
+            {"model": found.name, "dim": len(result[0]) if result else None, "vectors": result}
+        )
+
+    return embed
 
 
 def _chosen(payload: dict[str, Any], default: Model) -> list[Model] | Response:
