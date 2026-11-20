@@ -53,6 +53,16 @@ def count_records(call: Call) -> dict[str, Any]:
     return {"count": query.count_records(call.conn, dataset_id, request, hidden=hidden)}
 
 
+def field_stats(call: Call) -> dict[str, Any]:
+    """Минимум, максимум, сумма и среднее поля — средствами SQL (AI-04)."""
+    request = call.body.model_dump(exclude_none=True)
+    field = request.pop("field")
+    dataset_id = call.params["id"]
+    return facets.field_stats(
+        call.conn, dataset_id, field, request, hidden=_hidden(call, dataset_id)
+    )
+
+
 def value_counts(call: Call) -> dict[str, Any]:
     """Значения поля и число записей с каждым — для фильтра столбца."""
     request = call.body.model_dump(exclude_none=True)
@@ -216,6 +226,15 @@ ENDPOINTS = [
         value_counts,
         "dataset.view",
         body=schemas.ValueCounts,
+        read_only=True,
+        **ON_DATASET,
+    ),
+    _e(
+        "POST",
+        "/datasets/{id}/records/stats",
+        field_stats,
+        "dataset.view",
+        body=schemas.FieldStats,
         read_only=True,
         **ON_DATASET,
     ),

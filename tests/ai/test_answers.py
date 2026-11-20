@@ -158,8 +158,13 @@ def test_model_uses_aggregate_and_cites_sources(admin, plant, model):
     assert message["path"] == "model" and message["status"] == "done"
     assert message["text"] == "Считаю. В работе 2 насоса [1]."
     assert [item["kind"] for item in message["sources"]] == ["dataset"]
-    assert message["steps"] == [{"tool": "aggregate",
-                                 "args": {"dataset": "Насосы", "group_by": "Состояние"}}]  # fmt: skip
+    step = message["steps"][0]
+    assert len(message["steps"]) == 1 and step["tool"] == "aggregate"
+    assert step["args"] == {"dataset": "Насосы", "group_by": "Состояние"}
+    assert 0 <= step["ms"] < 1000  # PERF-11: инструменты — до 1 с
+    assert message["sources"][0]["value"] == [
+        {"value": "В работе", "count": 2}, {"value": "Резерв", "count": 1}
+    ]  # fmt: skip
     system = model.seen[0][0][0]["content"]
     assert "Открыт реестр «Насосы»" in system and "Состояние (state, choice: В работе" in system
     assert "propose" not in model.seen[0][1]  # вопрос не просит изменений

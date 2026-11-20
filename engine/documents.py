@@ -157,6 +157,17 @@ def link(tx: Tx, viewer: Access, document_id: str, kind: str, target_id: str) ->
     return get(tx.conn, viewer, document_id)
 
 
+def check_link(
+    conn: sqlite3.Connection, viewer: Access, document_id: Any, kind: Any, target_id: Any
+) -> str:
+    """Проверки привязки без записи — для черновика ИИ «связь документа с ККС»."""
+    _writer(viewer)
+    if not isinstance(document_id, str) or not isinstance(target_id, str):
+        raise EngineError("document_link_invalid", "Нужны документ и цель привязки")
+    _open(_row(conn, viewer, document_id))
+    return _target(conn, viewer, str(kind), target_id)
+
+
 def unlink(tx: Tx, viewer: Access, document_id: str, kind: str, target_id: str) -> dict[str, Any]:
     _writer(viewer)
     row = _row(tx.conn, viewer, document_id)
