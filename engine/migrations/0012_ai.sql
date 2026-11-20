@@ -32,6 +32,8 @@ CREATE TABLE ai_messages (
     status     TEXT NOT NULL CHECK (status IN ('done', 'limit', 'no_model', 'no_service', 'error')),
     -- fast — точный вопрос без модели (AI-03); model — с моделью.
     path       TEXT CHECK (path IN ('fast', 'model')),
+    -- Какая модель ответила: основная или запасная, имя в Ollama.
+    model      TEXT,
     context    TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(context)),
     steps      TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(steps)),
     sources    TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(sources)),
@@ -73,12 +75,9 @@ CREATE TABLE ai_drafts (
 
 CREATE INDEX ix_ai_drafts_user ON ai_drafts (user_id, state, seq);
 
--- Настройки ИИ (KNOW-12, AI-15): ключ — значение JSON.
+-- Настройки ИИ (KNOW-12, AI-15, AI-01): ключ — значение JSON. Значения по
+-- умолчанию — в engine/ai_memory.py; здесь строка появляется при изменении.
 CREATE TABLE ai_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL CHECK (json_valid(value))
 ) STRICT, WITHOUT ROWID;
-
-INSERT INTO ai_settings (key, value) VALUES
-    ('retention_days', '180'),
-    ('cloud_allowed', 'false');

@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
-from ai import agent
+from ai import agent, probe, service
 from ai.api import Api, Reply
-from ai.model import Chunk, Model, ModelError, ToolCall
+from ai.model import Chunk, Config, Model, ModelError, ToolCall, best, build
 from engine import passwords
 from server import ai_link
 from server.app import create_app
@@ -67,15 +67,27 @@ class LocalLink:
         self.up = True
         self.payloads: list[dict[str, Any]] = []
 
-    def health(self) -> dict[str, Any] | None:
-        return {"service": "ai", "model": self.model.status()} if self.up else None
+    def health(self, models: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        if not self.up:
+            return None
+        chosen = service._chosen({"models": models or {}}, self.model)
+        return {"service": "ai", "model": chosen[0].status(),
+                "fallback": chosen[1].status() if len(chosen) > 1 else None}  # fmt: skip
+
+    def models(self, config: dict[str, Any]) -> dict[str, Any]:
+        found = build(Config.parse(config))
+        items = found.installed()
+        return {"items": items, "auto": best(items)}
+
+    def check(self, config: dict[str, Any]) -> dict[str, Any]:
+        return probe.run(build(Config.parse(config)))
 
     def ask(self, payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
         if not self.up:
             raise ai_link.AiUnavailable("остановлена")
         self.payloads.append(payload)
         api = Api(AsgiTransport(self.app), payload["token"], max_calls=payload["limits"]["calls"])
-        yield from agent.answer(payload, api, self.model)
+        yield from agent.answer(payload, api, service._chosen(payload, self.model))
 
 
 def tool(name: str, **args: Any) -> Chunk:

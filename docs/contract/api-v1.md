@@ -562,7 +562,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 
 | Метод и путь | Тело запроса | Ответ |
 | --- | --- | --- |
-| `GET /ai/status` | — | `{service, model: {name, available, remote} \| null, cloud_allowed, limits: {steps, calls}}` |
+| `GET /ai/status` | — | `{service, model, fallback, runtime, cloud_allowed, limits: {steps, calls}}`; модель — `{provider, name, configured, available, remote}` или `null` |
 | `GET /ai/schema` | — | `{sites, datasets: [{id, name, site_id, site, type, can_edit, fields}]}` — что пользователь может спрашивать |
 | `GET /ai/dialogs?limit=` | — | `{items: [{id, title, created_at, updated_at, messages}]}` — свои, свежие сначала |
 | `POST /ai/dialogs` | `{title?}` | диалог, `201` |
@@ -577,16 +577,19 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 | `GET /ai/drafts/{id}` | — | черновик |
 | `POST /ai/drafts/{id}/accept` | — | черновик |
 | `POST /ai/drafts/{id}/reject` | `{reason?}` | черновик |
-| `GET /ai/settings` | — | `{retention_days, cloud_allowed}` — «Администрирование» |
-| `PUT /ai/settings` | `{retention_days?, cloud_allowed?, confirm_cloud?}` | настройки — «Администрирование» |
+| `GET /ai/settings` | — | `{retention_days, cloud_allowed, model, fallback}` — «Администрирование» |
+| `PUT /ai/settings` | `{retention_days?, cloud_allowed?, confirm_cloud?, model?, fallback?}` | настройки — «Администрирование» |
+| `GET /ai/models?provider=&url=&name=` | — | `{items: [{name, size_gb, parameters, quantization, family, capabilities, context}], auto}` — «Администрирование» |
+| `POST /ai/models/check` | `{config}` | `{model, available, score, checks, first_token_ms, took_ms, answer, error}` — «Администрирование» |
 
 - **Вопрос** — поток строк JSON (`application/x-ndjson`, AI-11). Ключ идемпотентности не нужен. Строки:
   - `{type: "question", message}` — сохранённый вопрос, первая строка;
+  - `{type: "thinking"}` — модель размышляет перед шагом (если размышление включено);
   - `{type: "tool", name, args}` — выполняется инструмент;
   - `{type: "text", delta}` — кусок ответа;
   - `{type: "draft", draft}` — ИИ создал черновик изменения;
   - `{type: "message", message}` — сохранённый ответ, последняя строка.
-- **Сообщение:** `{id, dialog_id, role, text, status, path, context, steps, sources, took_ms, created_at, feedback}`.
+- **Сообщение:** `{id, dialog_id, role, text, status, path, model, context, steps, sources, took_ms, created_at, feedback}`; `model` — какая модель ответила.
   - `status`: `done`; `limit` — ответ прерван пределом (AI-10); `no_model` — модели нет или облачная не разрешена, ответ без неё (AI-12); `no_service` — служба ИИ недоступна; `error` — служба или модель оборвали ответ.
   - `path`: `fast` — точный вопрос без модели (AI-03), `model` — с моделью, `null` — ни то ни другое.
   - `steps` — `[{tool, args}]`: какие инструменты выполнялись.
@@ -604,19 +607,48 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   - ИИ получает инструмент `propose`, только если сам вопрос просит изменить данные: текст документов и записей включить его не может (AT-40).
 - **Диалоги** видит и удаляет только владелец; чужой диалог, сообщение и черновик — `404`, в том числе для администратора. Срок хранения — `retention_days` (1–3650, по умолчанию 180, KNOW-12).
 - **Оценка** (KNOW-05) хранится с вопросом, ответом и источниками и переживает удаление диалога.
+- **Модель** (AI-01) — настройка, а не код. `model` — основная, `fallback` — запасная: она отвечает, если основная не установлена, не запущена или отказала до первого слова. `null` — модель, с которой запущена служба. Настройка модели:
+  - `provider` — `ollama` (по умолчанию) или `openai`: OpenAI-совместимый сервер (llama.cpp, vLLM, LM Studio);
+  - `url` — адрес, по умолчанию `http://127.0.0.1:11434`;
+  - `name` — имя модели; пусто — служба сама берёт самую крупную установленную модель, умеющую вызывать инструменты;
+  - `think` — размышление: `auto` (как решит модель), `off`, `on`, `low`, `medium`, `high`;
+  - `context` — окно контекста в токенах, 2048–262144, по умолчанию 32768. У Ollama окно по умолчанию мало для схемы реестров и результатов инструментов;
+  - `temperature` — 0–2, по умолчанию 0,2;
+  - `api_key` — ключ доступа, если сервер модели его требует. Наружу не отдаётся: в ответе вместо него `api_key_set`. `null` или отсутствие ключа при том же `url` сохраняет прежний.
+  Неверная настройка — `400 ai_model_invalid`. Смена модели действует со следующего вопроса, без перезапуска службы.
+- **Список моделей** — что установлено у поставщика, с умениями (`tools`, `thinking`, `vision`) и размером; `auto` — какую модель служба выберет сама.
+- **Проверка модели** — вопрос станции по-русски с инструментом `kks_card` и вымышленным результатом. `checks`:
+  - `tool_call` — вызвала инструмент с правильным кодом;
+  - `uses_result` — взяла число из результата;
+  - `cites` — поставила ссылку `[n]`;
+  - `russian` — ответила по-русски.
+  `score` — сколько проверок пройдено из 4. Без службы ИИ — `503 ai_unavailable`.
+- **Фоновый запуск.** `runtime` — `{ollama, pulls, warm, error?}` или `null`:
+  - `ollama`: `running` — служба сама запустила Ollama; `starting`; `external` — уже был запущен; `not_installed`; `failed` — падает при запуске (подробности в `error` и `logs/ollama.log`); `remote` — Ollama на другом компьютере; `stopped`;
+  - `pulls` — `{имя: {status: downloading | done | failed | stopped, completed, total, error}}`: скачивание недостающих моделей;
+  - `warm` — модель, загруженная в память заранее.
+  Сервер запускает ИИ-службу вместе с собой, служба — Ollama; см. «ИИ-служба».
 - **Облачная модель** (AI-15) выключена. Модель на другом компьютере работает только при `cloud_allowed: true`; включение требует `confirm_cloud: true`, иначе `400 ai_cloud_confirm_required`.
 - **Журнал:** `ai.draft_propose`, `ai.draft_accept`, `ai.draft_reject`, `ai.settings`. Вопросы и ответы в журнал не пишутся: это переписка пользователя.
 
 ### ИИ-служба
 
+Сервер (`python -m server`) запускает службу в фоне сам и перезапускает, если она упала; `--no-ai-start` — не запускать. Служба при запуске:
+- запускает `ollama serve` в фоне, если Ollama не отвечает, — с flash attention, сжатым кэшем контекста (`q8_0`) и окном 32 768; упал — запускает снова; уже запущенный Ollama не трогает;
+- скачивает недостающие модели из `--pull` (по умолчанию `qwen3.5:9b`, `qwen3.5:4b`);
+- загружает основную модель в память и держит её `--keep-alive` (30 минут); сменилась основная модель — прогревает новую.
+Журналы — `logs/ai.log` и `logs/ollama.log` рядом с базой.
+
 Служба слушает только этот компьютер и принимает запросы только с заголовком `X-LocalAI-Key` — ключом из файла `ai.key` рядом с базой; сервер создаёт его при первом запуске (SEC-05). Сервер ищет службу по `--ai-url` или `LOCALAI_AI_URL`, по умолчанию `http://127.0.0.1:8731`.
 
 | Путь службы (не API сервера) | Метод | Ответ |
 | --- | --- | --- |
-| `/health` | `GET` | `{service: "ai", model: {name, available, remote}}` |
-| `/ask` | `POST` | поток NDJSON: `tool`, `text`, `draft`, последней — `{type: "done", status, path, steps, sources, calls, took_ms}` |
+| `/health` | `GET`, `POST {models}` | `{service: "ai", model, fallback, runtime}` |
+| `/ask` | `POST` | поток NDJSON: `thinking`, `tool`, `text`, `draft`, последней — `{type: "done", status, path, model, steps, sources, calls, took_ms}` |
+| `/models` | `POST {config}` | `{items, auto}` |
+| `/check` | `POST {config}` | результат проверки модели |
 
-Тело `/ask` от сервера: `{question, context, history, token, cloud_allowed, limits: {steps, calls}}`.
+Тело `/ask` от сервера: `{question, context, history, token, cloud_allowed, models: {primary, fallback}, limits: {steps, calls}}`.
 
 ## Журнал и состояние
 

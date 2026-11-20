@@ -134,7 +134,9 @@ def test_old_dialogs_are_purged_by_retention(app, admin, plant):
 
 
 def test_cloud_model_needs_explicit_confirmation(app, admin, plant, model):
-    assert admin.get("/ai/settings").json() == {"retention_days": 180, "cloud_allowed": False}
+    assert admin.get("/ai/settings").json() == {
+        "retention_days": 180, "cloud_allowed": False, "model": None, "fallback": None
+    }  # fmt: skip
     refused = admin.put("/ai/settings", {"cloud_allowed": True})
     assert refused.status == 400 and refused.json()["error"]["code"] == "ai_cloud_confirm_required"
     model.remote = True
@@ -173,3 +175,21 @@ def test_draft_events_reach_only_the_asker(app, admin, plant, model):
     assert "ai.draft_propose" in [item["action"] for item in mine]
     theirs = other.get("/events", after=start).json()["events"]
     assert "ai.draft_propose" not in [item["action"] for item in theirs]
+
+
+def test_model_access_key_is_never_shown(app, admin, plant):
+    from engine import ai_memory
+
+    remote = {"provider": "openai", "url": "https://models.example.org", "name": "m",
+              "api_key": "секрет-ключа"}  # fmt: skip
+    saved = admin.put("/ai/settings", {"model": remote}).json()
+    assert saved["model"]["api_key_set"] is True and "api_key" not in saved["model"]
+    admin.put("/ai/settings", {"model": {**remote, "api_key": None, "think": "low"}})
+    with app.state.db.read() as conn:
+        stored = ai_memory.settings(conn, secrets=True)["model"]
+    assert stored["api_key"] == "секрет-ключа" and stored["think"] == "low"  # ключ сохранён
+    audit = admin.get("/audit", action="ai.settings").json()["items"]
+    assert audit and all("секрет" not in str(item) for item in audit)
+    assert admin.put("/ai/settings", {"model": None}).json()["model"] is None
+    status = admin.get("/ai/status").json()
+    assert status["model"]["name"] == "сценарий" and status["fallback"] is None

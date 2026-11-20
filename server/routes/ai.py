@@ -12,14 +12,16 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Iterator
+from dataclasses import asdict
 from typing import Any
 
 from starlette.responses import StreamingResponse
 
+from ai.model import Config
 from engine import EngineError, ai_memory, structure
 from engine.access import Access
 from engine.database import Database
-from engine.errors import FORBIDDEN
+from engine.errors import FORBIDDEN, UNAVAILABLE
 from server import ai_link, schemas
 from server.api import Call, Endpoint
 
@@ -38,14 +40,21 @@ _CHOICES = 50
 
 
 def status(call: Call) -> dict[str, Any]:
-    """Работает ли ИИ-служба, какая модель подключена и разрешена ли облачная модель."""
-    health = call.ai.health() if call.ai is not None else None
+    """Работает ли ИИ-служба, какие модели подключены и разрешена ли облачная модель."""
+    prefs = ai_memory.settings(call.conn, secrets=True)
+    health = call.ai.health(_models(prefs)) if call.ai is not None else None
     return {
         "service": health is not None,
         "model": (health or {}).get("model"),
-        "cloud_allowed": bool(ai_memory.settings(call.conn).get("cloud_allowed")),
+        "fallback": (health or {}).get("fallback"),
+        "runtime": (health or {}).get("runtime"),
+        "cloud_allowed": bool(prefs.get("cloud_allowed")),
         "limits": {"steps": MAX_STEPS, "calls": ai_link.MAX_CALLS},
     }
+
+
+def _models(prefs: dict[str, Any]) -> dict[str, Any]:
+    return {"primary": prefs.get("model"), "fallback": prefs.get("fallback")}
 
 
 def schema(call: Call) -> dict[str, Any]:
@@ -149,14 +158,15 @@ def ask(call: Call) -> StreamingResponse:
         ai_memory.purge_old(tx)
         question = ai_memory.add_question(tx, viewer, dialog_id, body.text, context)
         previous = ai_memory.history(tx.conn, dialog_id, question["id"])
-        cloud = bool(ai_memory.settings(tx.conn).get("cloud_allowed"))
+        prefs = ai_memory.settings(tx.conn, secrets=True)
     token = call.grants.issue(viewer.user_id, dialog_id, question["id"])
     payload = {
         "question": question["text"],
         "context": context,
         "history": previous,
         "token": token,
-        "cloud_allowed": cloud,
+        "cloud_allowed": bool(prefs.get("cloud_allowed")),
+        "models": _models(prefs),
         "limits": {"steps": MAX_STEPS, "calls": ai_link.MAX_CALLS},
     }
     return StreamingResponse(
@@ -189,7 +199,7 @@ def _relay(
             if kind == "done":
                 done = event
                 continue
-            if kind in ("text", "tool", "draft"):
+            if kind in ("text", "tool", "draft", "thinking"):
                 yield _line(event)
     except ai_link.AiUnavailable:
         if parts:  # ответ начался и оборвался
@@ -214,6 +224,7 @@ def _relay(
                 steps=list(done.get("steps") or []),
                 sources=list(done.get("sources") or []),
                 took_ms=round((time.perf_counter() - started) * 1000, 1),
+                model=done.get("model"),
             )
     yield _line({"type": "message", "message": stored})
 
@@ -291,14 +302,68 @@ def get_settings(call: Call) -> dict[str, Any]:
 
 
 def put_settings(call: Call) -> dict[str, Any]:
-    """Изменить настройки ИИ; облачная модель — только с подтверждением (AI-15)."""
+    """Изменить настройки ИИ: срок хранения, облачная модель (AI-15), основная и запасная модели."""
     body = call.body
+    before = ai_memory.settings(call.tx.conn, secrets=True)
+    models = {
+        key: _model_config(getattr(body, key), before.get(key), key)
+        for key in ("model", "fallback")
+        if key in body.model_fields_set
+    }
     return ai_memory.set_settings(
         call.tx,
         retention_days=body.retention_days,
         cloud_allowed=body.cloud_allowed,
         confirm_cloud=body.confirm_cloud,
+        models=models,
     )
+
+
+def _model_config(raw: Any, before: Any, field: str) -> dict[str, Any] | None:
+    """Проверка настройки модели. Ключ доступа без нового значения сохраняется прежним."""
+    if raw is None:
+        return None
+    raw = dict(raw)
+    raw.pop("api_key_set", None)
+    keep = raw.get("api_key") is None
+    if keep and isinstance(before, dict) and before.get("url") == raw.get("url"):
+        raw["api_key"] = before.get("api_key", "")
+    try:
+        return asdict(Config.parse(raw))
+    except (ValueError, TypeError) as error:
+        raise EngineError("ai_model_invalid", str(error), field=field) from None
+
+
+# Модели (AI-01) ---------------------------------------------------------------------
+
+
+def models(call: Call) -> dict[str, Any]:
+    """Модели, установленные у поставщика, с умениями: инструменты, размышление, зрение."""
+    config = _model_config(
+        {key: value for key, value in call.query.items() if value}, None, "query"
+    )
+    if call.ai is None:
+        raise _no_service()
+    try:
+        return call.ai.models(config)
+    except ai_link.AiUnavailable as error:
+        raise _no_service(str(error)) from None
+
+
+def check_model(call: Call) -> dict[str, Any]:
+    """Проверить модель на вопросе станции до того, как сделать её основной."""
+    config = _model_config(call.body.config, None, "config")
+    if call.ai is None:
+        raise _no_service()
+    try:
+        return call.ai.check(config)
+    except ai_link.AiUnavailable as error:
+        raise _no_service(str(error)) from None
+
+
+def _no_service(detail: str = "") -> EngineError:
+    message = "ИИ-служба недоступна" + (f": {detail}" if detail else "")
+    return EngineError("ai_unavailable", message, status=UNAVAILABLE)
 
 
 def _e(method: str, path: str, handler: Any, permission: str, **extra: Any) -> Endpoint:
@@ -338,5 +403,15 @@ ENDPOINTS = [
     _e("POST", "/ai/drafts/{id}/accept", accept, AI),
     _e("POST", "/ai/drafts/{id}/reject", reject, AI, body=schemas.AiDraftReject),
     _e("GET", "/ai/settings", get_settings, ADMIN),
+    _e("GET", "/ai/models", models, ADMIN, query=("provider", "url", "name")),
+    _e(
+        "POST",
+        "/ai/models/check",
+        check_model,
+        ADMIN,
+        body=schemas.AiModelCheck,
+        manual=True,
+        idempotent=False,
+    ),
     _e("PUT", "/ai/settings", put_settings, ADMIN, body=schemas.AiSettings),
 ]

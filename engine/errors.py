@@ -11,6 +11,7 @@ TOO_LARGE = "too_large"
 UNAUTHORIZED = "unauthorized"
 FORBIDDEN = "forbidden"
 TOO_MANY = "too_many"
+UNAVAILABLE = "unavailable"  # нужная служба (ИИ, процесс схем) не отвечает
 
 
 class EngineError(Exception):

@@ -54,7 +54,12 @@ class HttpTransport:
 
     def __init__(self, base_url: str, *, cafile: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
-        self.context = ssl.create_default_context(cafile=cafile) if cafile else None
+        self.context = None
+        if cafile:
+            # Сертификат сервера — самоподписанный и выдан на сетевое имя, а служба ходит
+            # на 127.0.0.1: проверяется сам сертификат (он единственный доверенный), не имя.
+            self.context = ssl.create_default_context(cafile=cafile)
+            self.context.check_hostname = False
 
     def __call__(
         self, method: str, path: str, query: dict[str, Any], body: Any, headers: dict[str, str]
