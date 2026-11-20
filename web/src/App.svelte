@@ -6,6 +6,9 @@
   import Login from './Login.svelte';
   import PasswordChange from './PasswordChange.svelte';
   import Admin from './admin/Admin.svelte';
+  import Wizard from './imports/Wizard.svelte';
+  import RegistryEntry from './imports/RegistryEntry.svelte';
+  import {allowed} from './imports/model.ts';
   import Backups from './backups/Backups.svelte';
   import { showTime } from './admin/model.ts';
   import { findSection, homePath, sections } from './routes.ts';
@@ -14,6 +17,8 @@
 
   const mockMode = import.meta.env.DEV && import.meta.env.MODE === 'development';
   let pathname = $state(location.pathname);
+  let query = $state(location.search);
+  let datasetId = $derived(new URLSearchParams(query).get('dataset') ?? '');
   let current = $derived(findSection(pathname));
   let title = $derived(current?.title ?? text.notFound);
   let connection = $state<'pending' | 'ready' | 'error'>('pending');
@@ -29,10 +34,12 @@
   let setupRequired = $state(false);
   let notice = $state('');
   let adminDirty = $state(false);
+  let canImport = $derived(gate === 'ready' && !!me && allowed(me.permissions));
+  let importSession = $derived(JSON.stringify([me?.user.id, me?.permissions]));
   let canAdmin = $derived(gate === 'ready' && me?.permissions.sections.includes('admin') === true);
   let canBackups = $derived(gate === 'ready' && me?.permissions.sections.includes('backups') === true);
   let visibleSections = $derived(sections.filter((item) =>
-    (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
+    (item.path !== '/imports' || canImport) && (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
   ));
   let found = $derived(visibleSections.filter((item) =>
     item.title.toLocaleLowerCase('ru').includes(keywords.trim().toLocaleLowerCase('ru')),
@@ -129,12 +136,13 @@
   });
 
   function navigate(path: string) {
-    if (location.pathname === path) { dialog?.close(); return; }
+    if (location.pathname + location.search === path) { dialog?.close(); return; }
     if (adminDirty && !window.confirm(`${text.access.leaveTitle}. ${text.access.leaveHint}`)) return;
     adminDirty = false;
     dialog?.close();
-    if (location.pathname !== path) history.pushState(null, '', path);
+    history.pushState(null, '', path);
     pathname = location.pathname;
+    query = location.search;
     void tick().then(() => heading?.focus());
   }
 
@@ -161,13 +169,14 @@
 <svelte:window onkeydown={keyboard} onfocus={() => { if (gate === 'ready') void loadSession(); }}
   onbeforeunload={(event) => { if (adminDirty) { event.preventDefault(); event.returnValue = ''; } }}
   onpopstate={() => {
-    if (pathname === location.pathname) return;
+    if (pathname === location.pathname && query === location.search) return;
     if (adminDirty && !window.confirm(`${text.access.leaveTitle}. ${text.access.leaveHint}`)) {
-      history.pushState(null, '', pathname);
+      history.pushState(null, '', pathname + query);
       return;
     }
     adminDirty = false;
     pathname = location.pathname;
+    query = location.search;
   }} />
 
 {#if gate === 'checking'}
@@ -236,7 +245,12 @@
 
     <main id="content" tabindex="-1" class="content" aria-labelledby="page-title">
       <h1 id="page-title" bind:this={heading} tabindex="-1">{title}</h1>
-      {#if current?.path === '/admin'}
+      {#if current?.path === '/imports'}
+        {#if canImport && me}{#key importSession + query}<Wizard {me} preferred={datasetId} />{/key}
+        {:else}<p role="status">{text.accessDenied}</p>{/if}
+      {:else if current?.path === '/registries' && canImport && me}
+        {#key importSession}<RegistryEntry id={datasetId} {me} {navigate} />{/key}
+      {:else if current?.path === '/admin'}
         {#if canAdmin && me}<Admin {me} onChanged={loadSession} onDirty={(value) => { adminDirty = value; }} />
         {:else}<p role="status">{text.accessDenied}</p>{/if}
       {:else if current?.path === '/backups'}

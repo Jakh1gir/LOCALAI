@@ -1,3 +1,4 @@
+import { importMethods } from './imports.ts';
 import { text } from '../text.ts';
 import type { paths } from './contract.d.ts';
 import type {
@@ -8,7 +9,7 @@ import type {
   Backup, BackupEntry, BackupRestoreResult,
 } from './types.ts';
 
-type ApiPath = keyof paths;
+export type ApiPath = keyof paths;
 type Transport = (request: Request) => Promise<Response>;
 
 export class ApiError extends Error {
@@ -117,10 +118,12 @@ async function send(request: Request, fetchRequest: Transport, retry = true): Pr
   }
 }
 
-type Options = {
+export type Options = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   id?: string;
   name?: string;
+  row?: number;
+  file?: File;
   query?: Record<string, string | undefined>;
   body?: unknown;
   signal?: AbortSignal;
@@ -133,27 +136,31 @@ export function createApiClient({
   async function request<T>(path: ApiPath, options: Options = {}): Promise<T> {
     const { method = 'GET', id, name, query, body, signal } = options;
     const target = id === undefined ? path : path.replace('{id}', encodeURIComponent(id));
-    const url = new URL(name === undefined ? target : target.replace('{name}', encodeURIComponent(name)), baseUrl);
+    const resolved = name === undefined ? target : target.replace('{name}', encodeURIComponent(name));
+    const url = new URL(options.row === undefined ? resolved : resolved.replace('{row}', String(options.row)), baseUrl);
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, value);
     }
     const headers = new Headers({ Accept: 'application/json' });
-    if (body !== undefined) headers.set('Content-Type', 'application/json');
+    if (options.file) headers.set('Content-Type', 'application/octet-stream');
+    else if (body !== undefined) headers.set('Content-Type', 'application/json');
     const reads = path === '/api/v1/datasets/{id}/records/query' || path === '/api/v1/datasets/{id}/records/count';
     // Вход, выход и смена пароля не повторяются по ключу: сервер их не принимает.
     const session = path.startsWith('/api/v1/auth/');
     const backupWrite = method !== 'GET' && path.startsWith('/api/v1/backups');
-    if (method !== 'GET' && !reads && !session && !backupWrite) headers.set('Idempotency-Key', newKey());
+    const importPost = method === 'POST' && path.startsWith('/api/v1/imports');
+    if (method !== 'GET' && !reads && !session && !backupWrite && !importPost) headers.set('Idempotency-Key', newKey());
     // Сессия живёт в cookie HttpOnly: скрипт страницы её не видит и не хранит.
     const outgoing = new Request(url, {
-      method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
+      method, headers, body: options.file ?? (body === undefined ? undefined : JSON.stringify(body)), signal,
       credentials: 'same-origin',
     });
     // Создание и восстановление копий сервер не повторяет по ключу.
-    return await send(outgoing, fetchRequest, !backupWrite) as T;
+    return await send(outgoing, fetchRequest, !backupWrite && !importPost) as T;
   }
 
   return {
+    imports: importMethods(request),
     health: (signal?: AbortSignal) =>
       request<Health>('/api/v1/system/health', { signal }),
     me: (signal?: AbortSignal) =>

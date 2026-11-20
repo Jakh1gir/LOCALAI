@@ -45,6 +45,7 @@ export type TypeField = {
   searchable: boolean;
   sortable: boolean;
   filterable: boolean;
+  unique_values?: boolean;
   dictionary_id: string | null;
   input_mode: Exclude<Schemas['FieldCreate']['input_mode'], undefined>;
   kks_role: Exclude<Schemas['FieldCreate']['kks_role'], undefined>;
