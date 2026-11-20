@@ -1,0 +1,1045 @@
+{
+  "version": 1,
+  "profiles": {
+    "c101": {
+      "description": "База оборудования генератора C-101; любой seed, начиная со 100 записей.",
+      "bindings": {
+        "operating": {
+          "resource": "datasets",
+          "name": "В эксплуатации"
+        },
+        "warehouse": {
+          "resource": "datasets",
+          "name": "Склад"
+        },
+        "site": {
+          "resource": "site_of",
+          "dataset": "operating"
+        }
+      }
+    },
+    "c104": {
+      "description": "Модель генератора C-104: реестры Сигналы и Кабели, поля Код сигнала и Тип сигнала.",
+      "bindings": {
+        "signals": {
+          "resource": "datasets",
+          "name": "Сигналы"
+        },
+        "cables": {
+          "resource": "datasets",
+          "name": "Кабели"
+        },
+        "site": {
+          "resource": "site_of",
+          "dataset": "signals"
+        },
+        "signal_code": {
+          "resource": "field",
+          "dataset": "signals",
+          "name": "Код сигнала"
+        },
+        "signal_kind": {
+          "resource": "field",
+          "dataset": "signals",
+          "name": "Тип сигнала"
+        },
+        "sample": {
+          "resource": "sample",
+          "dataset": "signals",
+          "field": "signal_code"
+        }
+      }
+    }
+  },
+  "roles": {
+    "reader": {
+      "description": "Инженер: только чтение всех реестров.",
+      "datasets": [
+        "*"
+      ]
+    },
+    "operating_only": {
+      "description": "Инженер эксплуатации без доступа к складу.",
+      "datasets": [
+        "operating"
+      ]
+    },
+    "signals_only": {
+      "description": "Инженер сигналов без доступа к кабельному реестру.",
+      "datasets": [
+        "signals"
+      ]
+    }
+  },
+  "questions": [
+    {
+      "id": "Q-001",
+      "text": "Найди аппарат 10LAC10AP001.",
+      "kind": "exact_kks",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "object",
+            "method": "GET",
+            "path": "/api/v1/sites/{id}/kks/resolve",
+            "path_params": {
+              "id": "{{site.id}}"
+            },
+            "query": {
+              "code": "10LAC10AP001"
+            }
+          }
+        ],
+        "answer": {
+          "step": "object",
+          "pointer": "/code"
+        }
+      }
+    },
+    {
+      "id": "Q-002",
+      "text": "В каких реестрах есть записи об аппарате 10LAC10AP001?",
+      "kind": "exact_kks",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "object",
+            "method": "GET",
+            "path": "/api/v1/sites/{id}/kks/resolve",
+            "path_params": {
+              "id": "{{site.id}}"
+            },
+            "query": {
+              "code": "10LAC10AP001"
+            }
+          },
+          {
+            "name": "card",
+            "method": "GET",
+            "path": "/api/v1/kks/{id}",
+            "path_params": {
+              "id": "{{object.id}}"
+            }
+          }
+        ],
+        "answer": {
+          "step": "card",
+          "pointer": "/usage"
+        }
+      }
+    },
+    {
+      "id": "Q-003",
+      "text": "Найди ККС 10lac10ap001, записанный строчными буквами.",
+      "kind": "exact_kks",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "object",
+            "method": "GET",
+            "path": "/api/v1/sites/{id}/kks/resolve",
+            "path_params": {
+              "id": "{{site.id}}"
+            },
+            "query": {
+              "code": "10lac10ap001"
+            }
+          }
+        ],
+        "answer": {
+          "step": "object",
+          "pointer": "/code"
+        }
+      }
+    },
+    {
+      "id": "Q-004",
+      "text": "Есть ли объект с точным ККС 99ZZZ99ZZ999?",
+      "kind": "exact_kks",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "object",
+            "method": "GET",
+            "path": "/api/v1/sites/{id}/kks/resolve",
+            "path_params": {
+              "id": "{{site.id}}"
+            },
+            "query": {
+              "code": "99ZZZ99ZZ999"
+            },
+            "status": 404,
+            "error_code": "kks_not_found"
+          }
+        ],
+        "answer": {
+          "step": "object",
+          "pointer": "/error/code"
+        }
+      }
+    },
+    {
+      "id": "Q-005",
+      "text": "Сколько действующих записей в реестре «В эксплуатации»?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {}
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-006",
+      "text": "Сколько записей эксплуатации отправлено в архив?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "archived": true
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-007",
+      "text": "Сколько всего записей эксплуатации, включая архив?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "archived": "any"
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-008",
+      "text": "Сколько действующих записей на складе?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{warehouse.id}}"
+            },
+            "body": {}
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-009",
+      "text": "Сколько действующих записей эксплуатации с производителем Siemens?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "manufacturer",
+                  "op": "eq",
+                  "value": "Siemens"
+                }
+              ]
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-010",
+      "text": "Сколько действующих записей эксплуатации с производителем ABB?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "manufacturer",
+                  "op": "eq",
+                  "value": "ABB"
+                }
+              ]
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-011",
+      "text": "Сколько записей эксплуатации имеют количество от 10 до 25 включительно?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "quantity",
+                  "op": "gte",
+                  "value": 10
+                },
+                {
+                  "field": "quantity",
+                  "op": "lte",
+                  "value": 25
+                }
+              ]
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-012",
+      "text": "Покажи первые десять записей Siemens в эксплуатации по серийному номеру.",
+      "kind": "filter",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/query",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "limit": 10,
+              "where": [
+                {
+                  "field": "manufacturer",
+                  "op": "eq",
+                  "value": "Siemens"
+                }
+              ],
+              "sort": {
+                "field": "serial",
+                "dir": "asc"
+              }
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/items"
+        }
+      }
+    },
+    {
+      "id": "Q-013",
+      "text": "Покажи первые десять записей эксплуатации с ненулевым резервом.",
+      "kind": "filter",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/query",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "limit": 10,
+              "where": [
+                {
+                  "field": "reserve",
+                  "op": "gt",
+                  "value": 0
+                }
+              ],
+              "sort": {
+                "field": "serial",
+                "dir": "asc"
+              }
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/items"
+        }
+      }
+    },
+    {
+      "id": "Q-014",
+      "text": "Сколько действующих записей требуют следующей проверки не позднее 31.12.2025?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "next_inspection",
+                  "op": "lte",
+                  "value": "2025-12-31"
+                }
+              ]
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-015",
+      "text": "Найди первые десять записей эксплуатации по слову «насос».",
+      "kind": "filter",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/query",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "limit": 10,
+              "search": "насос",
+              "sort": {
+                "field": "serial",
+                "dir": "asc"
+              }
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/items"
+        }
+      }
+    },
+    {
+      "id": "Q-016",
+      "text": "У скольких действующих записей эксплуатации не заполнено примечание?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "note",
+                  "op": "empty"
+                }
+              ]
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-017",
+      "text": "Сколько действующих записей эксплуатации содержат неисправное оборудование?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "broken",
+                  "op": "gt",
+                  "value": 0
+                }
+              ]
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-018",
+      "text": "Покажи первые десять записей эксплуатации, связанных с ККС 10LAC10AP001.",
+      "kind": "filter",
+      "profile": "c101",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "object",
+            "method": "GET",
+            "path": "/api/v1/sites/{id}/kks/resolve",
+            "path_params": {
+              "id": "{{site.id}}"
+            },
+            "query": {
+              "code": "10LAC10AP001"
+            }
+          },
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/query",
+            "path_params": {
+              "id": "{{operating.id}}"
+            },
+            "body": {
+              "kks": "{{object.id}}",
+              "limit": 10
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/items"
+        }
+      }
+    },
+    {
+      "id": "Q-019",
+      "text": "Могу ли я без права на склад узнать число складских записей?",
+      "kind": "count",
+      "profile": "c101",
+      "role": "operating_only",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{warehouse.id}}"
+            },
+            "body": {},
+            "status": 403,
+            "error_code": "forbidden"
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/error/code"
+        }
+      }
+    },
+    {
+      "id": "Q-020",
+      "text": "Покажи складские записи от имени инженера только с доступом к эксплуатации.",
+      "kind": "filter",
+      "profile": "c101",
+      "role": "operating_only",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/query",
+            "path_params": {
+              "id": "{{warehouse.id}}"
+            },
+            "body": {
+              "limit": 10
+            },
+            "status": 403,
+            "error_code": "forbidden"
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/error/code"
+        }
+      }
+    },
+    {
+      "id": "Q-021",
+      "text": "К какому аппарату относится код сигнала {{sample.value}}?",
+      "kind": "signal_code",
+      "profile": "c104",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "object",
+            "method": "GET",
+            "path": "/api/v1/sites/{id}/kks/resolve",
+            "path_params": {
+              "id": "{{site.id}}"
+            },
+            "query": {
+              "code": "{{sample.value}}"
+            }
+          }
+        ],
+        "answer": {
+          "step": "object",
+          "pointer": "/code"
+        }
+      }
+    },
+    {
+      "id": "Q-022",
+      "text": "Найди строку сигнала с точным кодом {{sample.value}}.",
+      "kind": "signal_code",
+      "profile": "c104",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/query",
+            "path_params": {
+              "id": "{{signals.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "{{signal_code.key}}",
+                  "op": "eq",
+                  "value": "{{sample.value}}"
+                }
+              ],
+              "limit": 10
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/items"
+        }
+      }
+    },
+    {
+      "id": "Q-023",
+      "text": "Сколько действующих сигналов в реестре «Сигналы»?",
+      "kind": "count",
+      "profile": "c104",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{signals.id}}"
+            },
+            "body": {}
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-024",
+      "text": "Сколько дискретных входных сигналов DI?",
+      "kind": "count",
+      "profile": "c104",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{signals.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "{{signal_kind.key}}",
+                  "op": "eq",
+                  "value": "DI"
+                }
+              ]
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-025",
+      "text": "Сколько аналоговых входных сигналов AI?",
+      "kind": "count",
+      "profile": "c104",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{signals.id}}"
+            },
+            "body": {
+              "where": [
+                {
+                  "field": "{{signal_kind.key}}",
+                  "op": "eq",
+                  "value": "AI"
+                }
+              ]
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-026",
+      "text": "Покажи первые десять дискретных выходных сигналов DO по коду.",
+      "kind": "filter",
+      "profile": "c104",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/query",
+            "path_params": {
+              "id": "{{signals.id}}"
+            },
+            "body": {
+              "limit": 10,
+              "where": [
+                {
+                  "field": "{{signal_kind.key}}",
+                  "op": "eq",
+                  "value": "DO"
+                }
+              ],
+              "sort": {
+                "field": "{{signal_code.key}}",
+                "dir": "asc"
+              }
+            }
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/items"
+        }
+      }
+    },
+    {
+      "id": "Q-027",
+      "text": "Сколько строк связано с аппаратом сигнала {{sample.value}} в каждом реестре?",
+      "kind": "exact_kks",
+      "profile": "c104",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "object",
+            "method": "GET",
+            "path": "/api/v1/sites/{id}/kks/resolve",
+            "path_params": {
+              "id": "{{site.id}}"
+            },
+            "query": {
+              "code": "{{sample.value}}"
+            }
+          },
+          {
+            "name": "card",
+            "method": "GET",
+            "path": "/api/v1/kks/{id}",
+            "path_params": {
+              "id": "{{object.id}}"
+            }
+          }
+        ],
+        "answer": {
+          "step": "card",
+          "pointer": "/usage"
+        }
+      }
+    },
+    {
+      "id": "Q-028",
+      "text": "Сколько действующих кабелей в реестре «Кабели»?",
+      "kind": "count",
+      "profile": "c104",
+      "role": "reader",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{cables.id}}"
+            },
+            "body": {}
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/count"
+        }
+      }
+    },
+    {
+      "id": "Q-029",
+      "text": "Могу ли я без доступа к кабельному реестру узнать число кабелей?",
+      "kind": "count",
+      "profile": "c104",
+      "role": "signals_only",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "result",
+            "method": "POST",
+            "path": "/api/v1/datasets/{id}/records/count",
+            "path_params": {
+              "id": "{{cables.id}}"
+            },
+            "body": {},
+            "status": 403,
+            "error_code": "forbidden"
+          }
+        ],
+        "answer": {
+          "step": "result",
+          "pointer": "/error/code"
+        }
+      }
+    },
+    {
+      "id": "Q-030",
+      "text": "Покажи карточку аппарата сигнала {{sample.value}} от роли без доступа к кабелям.",
+      "kind": "exact_kks",
+      "profile": "c104",
+      "role": "signals_only",
+      "origin": "придуман по базе генератора",
+      "expected": {
+        "type": "api",
+        "steps": [
+          {
+            "name": "object",
+            "method": "GET",
+            "path": "/api/v1/sites/{id}/kks/resolve",
+            "path_params": {
+              "id": "{{site.id}}"
+            },
+            "query": {
+              "code": "{{sample.value}}"
+            }
+          },
+          {
+            "name": "card",
+            "method": "GET",
+            "path": "/api/v1/kks/{id}",
+            "path_params": {
+              "id": "{{object.id}}"
+            }
+          }
+        ],
+        "answer": {
+          "step": "card",
+          "pointer": ""
+        }
+      }
+    }
+  ]
+}
