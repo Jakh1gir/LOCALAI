@@ -12,11 +12,10 @@ from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 
 from engine import Database, EngineError, open_database
-from server import ai_link, api
+from server import ai_link, api, vector_index
 from server import backups as backup_files
 from server.files import FileStore
 from server.routes import ENDPOINTS
-from server.vector_index import VectorIndex
 from server.worker import Worker
 
 
@@ -46,7 +45,9 @@ def create_app(
     if ai is None:
         url = ai_url or os.environ.get("LOCALAI_AI_URL") or ai_link.DEFAULT_URL
         ai = ai_link.AiLink(url, ai_link.load_key(Path(db.path).resolve().parent))
-    index = VectorIndex()
+    index = vector_index.choose(
+        Path(db.path).resolve().parent, os.environ.get("LOCALAI_VECTORS") or "auto"
+    )
     server = api.Server(db, folder, work, store, ai, index)
     worker = Worker(db, store, ai)
 

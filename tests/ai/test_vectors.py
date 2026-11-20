@@ -7,11 +7,14 @@
 
 from __future__ import annotations
 
+import math
+from array import array
+
 import pytest
 
 from ai.model import Chunk
 from engine import SYSTEM, vectors
-from server.vector_index import VectorIndex
+from server.vector_index import ExtensionIndex, VectorIndex, choose
 from server.worker import Embedder, run_pending
 
 from .conftest import ask, tool, tool_results, user
@@ -45,7 +48,8 @@ def test_worker_computes_vectors_once(app, admin, library, link):
     calls = link.meaning.calls
     assert _embed_all(app) == 0 and link.meaning.calls == calls  # всё посчитано — служба не нужна
     status = admin.get("/ai/status").json()
-    assert status["vectors"] == {"model": "смысл-тест", "done": 3, "total": 3}
+    assert status["vectors"] | {"index": None} == {"model": "смысл-тест", "done": 3, "total": 3,
+                                                   "index": None}  # fmt: skip
     assert status["embedding"]["name"] == "смысл-тест"
 
     admin.request(  # новая версия документа — старые фрагменты и их векторы уходят
@@ -140,3 +144,72 @@ def test_index_grows_reloads_and_switches_model(app, admin, library):
         assert [seq for seq, _ in index.search(conn, "m1", one_hot(5), 3)] == [seqs[1], seqs[2]]
     with pytest.raises(Exception):  # noqa: B017 — короткий вектор не принимается
         vectors.normalize([1.0, 2.0])
+
+
+# Дополнение sqlite-vec: догоняние основной базы ---------------------------------------------
+
+
+class TableIndex(ExtensionIndex):
+    """ExtensionIndex, где vec0 заменён обычной таблицей: проверяется логика догоняния.
+
+    Сам vec0 проверяется на месте командой ``python -m server.admin … check-vectors``.
+    """
+
+    def __init__(self, path):
+        super().__init__(path, loader=lambda conn: "таблица")
+
+    def _create(self, side, dim):
+        side.execute("CREATE TABLE vec_chunks (rowid INTEGER PRIMARY KEY, embedding BLOB)")
+
+    def _knn(self, side, blob, k):
+        wanted = array("f", blob)
+        scored = []
+        for rowid, raw in side.execute("SELECT rowid, embedding FROM vec_chunks"):
+            other = array("f", raw)
+            scored.append((rowid, math.dist(wanted, other)))
+        return sorted(scored, key=lambda item: item[1])[:k]
+
+
+def test_extension_index_follows_main_database(app, admin, library, tmp_path):
+    index = TableIndex(tmp_path / "vectors.sqlite3")
+    assert index.available and index.status()["kind"] == "extension"
+    db = app.state.db
+    with db.read() as conn:
+        seqs = [row[0] for row in conn.execute("SELECT seq FROM chunks ORDER BY seq")]
+
+    def put(model, items):
+        with db.write(SYSTEM) as tx:
+            vectors.store(tx, model, items)
+
+    one_hot = lambda place: [1.0 if i == place else 0.0 for i in range(32)]
+    put("m1", [(seqs[0], one_hot(0)), (seqs[1], one_hot(1))])
+    with db.read() as conn:
+        hits = index.search(conn, "m1", one_hot(1), 2)
+    assert hits[0] == (seqs[1], pytest.approx(1.0)) and hits[1][1] == pytest.approx(0.0)
+    put("m1", [(seqs[2], one_hot(2))])  # новые векторы догоняются
+    with db.read() as conn:
+        assert index.search(conn, "m1", one_hot(2), 1)[0][0] == seqs[2]
+    with db.write(SYSTEM) as tx:  # удаление в основной базе — и в индексе
+        tx.conn.execute("DELETE FROM chunk_vectors WHERE chunk_seq = ?", (seqs[0],))
+    with db.read() as conn:
+        assert seqs[0] not in [seq for seq, _ in index.search(conn, "m1", one_hot(0), 5)]
+    assert index.status()["rows"] == 2
+    with db.write(SYSTEM) as tx:  # смена модели — индекс собирается заново
+        tx.conn.execute("DELETE FROM chunk_vectors")
+    put("m2", [(seqs[1], one_hot(4))])
+    with db.read() as conn:
+        assert index.search(conn, "m2", one_hot(4), 3) == [(seqs[1], pytest.approx(1.0))]
+    reopened = TableIndex(tmp_path / "vectors.sqlite3")  # после перезапуска сервера
+    with db.read() as conn:
+        assert reopened.search(conn, "m2", one_hot(4), 3)[0][0] == seqs[1]
+
+
+def test_missing_extension_falls_back_to_memory(tmp_path, admin, plant):
+    chosen = choose(tmp_path, "auto")
+    assert chosen.kind == "memory" and "sqlite_vec" in chosen.status()["extension"]
+    assert not (tmp_path / "vectors.sqlite3").exists()  # файл индекса — только с дополнением
+    assert choose(tmp_path, "memory").status()["extension"] is None
+    with pytest.raises(ValueError):
+        choose(tmp_path, "диск")
+    index = admin.get("/ai/status").json()["vectors"]["index"]
+    assert index["kind"] == "memory"

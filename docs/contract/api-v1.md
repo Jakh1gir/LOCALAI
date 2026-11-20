@@ -572,7 +572,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
 
 | Метод и путь | Тело запроса | Ответ |
 | --- | --- | --- |
-| `GET /ai/status` | — | `{service, model, fallback, embedding, vectors: {model, done, total}, runtime, cloud_allowed, limits: {steps, calls}}`; модель — `{provider, name, configured, available, remote}` или `null` |
+| `GET /ai/status` | — | `{service, model, fallback, embedding, vectors: {model, done, total, index}, runtime, cloud_allowed, limits: {steps, calls}}`; модель — `{provider, name, configured, available, remote}` или `null` |
 | `GET /ai/schema` | — | `{sites, datasets: [{id, name, site_id, site, type, can_edit, fields}]}` — что пользователь может спрашивать |
 | `GET /ai/dialogs?limit=` | — | `{items: [{id, title, created_at, updated_at, messages}]}` — свои, свежие сначала |
 | `POST /ai/dialogs` | `{title?}` | диалог, `201` |
@@ -632,7 +632,7 @@ python -m server.admin --db localai.sqlite3 create-admin --login admin --name "�
   - `gpu` — `false`: считать на процессоре (у модели векторов по умолчанию — чтобы не вытеснять модель чата из видеопамяти);
   - `api_key` — ключ доступа, если сервер модели его требует. Наружу не отдаётся: в ответе вместо него `api_key_set`. `null` или отсутствие ключа при том же `url` сохраняет прежний.
   Неверная настройка — `400 ai_model_invalid`. Смена модели действует со следующего вопроса, без перезапуска службы.
-- **Модель векторов** (`embedding`, AI-05) — та же настройка модели; `null` — модель запуска службы, по умолчанию `qwen3-embedding:0.6b` в Ollama на процессоре; `{"provider": "none"}` — поиск по смыслу выключен. `vectors` в состоянии — сколько фрагментов действующих документов уже с векторами этой модели.
+- **Модель векторов** (`embedding`, AI-05) — та же настройка модели; `null` — модель запуска службы, по умолчанию `qwen3-embedding:0.6b` в Ollama на процессоре; `{"provider": "none"}` — поиск по смыслу выключен. `vectors` в состоянии — сколько фрагментов действующих документов уже с векторами этой модели; `index` — чем ищется: `{kind: "extension", version, rows}` — дополнение sqlite-vec, `{kind: "memory", rows, extension}` — в памяти, `extension` — почему не загрузилось дополнение.
 - **Список моделей** — что установлено у поставщика, с умениями (`tools`, `thinking`, `vision`) и размером; `auto` — какую модель служба выберет сама.
 - **Проверка модели** — вопрос станции по-русски с инструментом `kks_card` и вымышленным результатом. `checks`:
   - `tool_call` — вызвала инструмент с правильным кодом;

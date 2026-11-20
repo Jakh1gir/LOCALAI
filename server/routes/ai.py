@@ -49,7 +49,10 @@ def status(call: Call) -> dict[str, Any]:
         "fallback": (health or {}).get("fallback"),
         "runtime": (health or {}).get("runtime"),
         "embedding": (health or {}).get("embedding"),
-        "vectors": vectors.counts(call.conn, _embedding_name(health)),
+        "vectors": {
+            **vectors.counts(call.conn, _embedding_name(health)),
+            "index": call.vectors.status() if call.vectors is not None else None,
+        },
         "cloud_allowed": bool(prefs.get("cloud_allowed")),
         "limits": {"steps": MAX_STEPS, "calls": ai_link.MAX_CALLS},
     }

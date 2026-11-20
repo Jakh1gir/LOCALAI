@@ -420,4 +420,6 @@ def test_ai_service_embeds_with_ollama_on_cpu(stack):
     status = Browser(stack["url"]["server"]).call("GET", "/ai/status")
     assert status["embedding"]["name"] == "qwen3-embedding:0.6b"  # по умолчанию, не скачана
     assert status["embedding"]["available"] is False
-    assert status["vectors"] == {"model": None, "done": 0, "total": 0}
+    assert {key: status["vectors"][key] for key in ("model", "done", "total")} == {
+        "model": None, "done": 0, "total": 0
+    }  # fmt: skip
