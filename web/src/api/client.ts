@@ -5,7 +5,7 @@ import type {
   Permission, PermissionCatalog, Role, RoleCreate, RoleDetails, RoleUpdate,
   TemporaryUser, User, UserCreate, UserUpdate, RecordCreate, RecordDetail, RecordPage,
   RecordQuery, RecordRow, RecordType, RecordUpdate, RecordValues, TypeDetails, KksRules, KksResolution,
-  Backup, BackupEntry, BackupRestoreResult,
+  Backup, BackupEntry, BackupRestoreResult, SearchResult, KksCard,
 } from './types.ts';
 
 type ApiPath = keyof paths;
@@ -193,6 +193,8 @@ export function createApiClient({
     resolveKks: (siteId: string, code: string, signal?: AbortSignal) => request<KksResolution>('/api/v1/sites/{id}/kks/resolve', {
       id: siteId, query: { code }, signal,
     }),
+    search: (q: string, signal?: AbortSignal) => request<SearchResult>('/api/v1/search', { query: { q }, signal }),
+    getKksCard: (id: string, signal?: AbortSignal) => request<KksCard>('/api/v1/kks/{id}', { id, signal }),
     listBackups: (signal?: AbortSignal) => request<Items<BackupEntry>>('/api/v1/backups', { signal }),
     createBackup: (password: string, label?: string) => request<Backup>('/api/v1/backups', {
       method: 'POST', body: { password, label: label || null },

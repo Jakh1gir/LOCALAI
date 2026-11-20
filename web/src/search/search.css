@@ -1,0 +1,67 @@
+dialog.global-search {
+  width: min(760px, calc(100% - 32px));
+}
+.global-search [role='listbox'] {
+  max-height: min(55dvh, 540px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.global-search h3 {
+  color: var(--muted);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  margin: var(--space-5) 0 var(--space-2);
+}
+.global-search .search-results {
+  margin: 0;
+}
+.global-search .search-results a {
+  padding: var(--space-3);
+}
+.global-search [aria-selected='true'] a {
+  background: var(--accent-surface);
+  box-shadow: inset 3px 0 var(--accent-solid);
+}
+.search-option {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+}
+.search-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.search-detail {
+  display: block;
+  width: 100%;
+  color: var(--muted);
+  font-size: var(--font-xs);
+  overflow-wrap: anywhere;
+}
+.search-badge {
+  color: var(--accent-solid);
+  font-size: var(--font-xs);
+}
+.search-hint,
+.search-status {
+  color: var(--muted);
+  font-size: var(--font-xs);
+  margin-block: var(--space-3);
+}
+.target-view {
+  max-width: 1000px;
+}
+.target-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.target-view h2 {
+  font-size: var(--font-lg);
+  margin-bottom: var(--space-4);
+}
+.target-view td {
+  overflow-wrap: anywhere;
+}
