@@ -114,6 +114,23 @@ export type KksResolution = {
 };
 
 export type Scalar = string | number | boolean | null;
+export type KksCard = {
+  id: string; code: string; name: string | null; site_id: string; archived_at: string | null;
+  aliases: { id: string; alias: string }[];
+  usage: { dataset_id: string; role: string; records: number }[];
+  via_links: { dataset_id: string; records: number }[];
+};
+export type SearchKks = {
+  id: string; code: string; name: string | null; site_id: string; site: string;
+  archived: boolean; exact: boolean; via?: 'code' | 'alias' | 'signal' | 'glossary'; signal?: string;
+};
+export type SearchRecord = {
+  id: string; dataset_id: string; dataset: string; label: string; version: number;
+  match: { field: string; text: string } | null;
+};
+export type SearchResult = {
+  query: string; kks: SearchKks[]; records: SearchRecord[]; more: { records: boolean }; took_ms: number;
+};
 export type RecordDoc = Record<string, Scalar | Scalar[]>;
 export type RecordValues = Schemas['RecordPatch']['values'];
 export type RecordUpdate = Schemas['RecordPatch'];
@@ -127,7 +144,7 @@ export type RecordRow = {
   created_at: string;
   updated_at: string;
 };
-export type Refs = { choices: Record<string, string>; kks: Record<string, string> };
+export type Refs = { choices: Record<string, string>; kks: Record<string, string>; records?: Record<string, string> };
 export type RecordDetail = { record: RecordRow; refs: Refs };
 export type RecordPage = Items<RecordRow> & { next_cursor: string | null; refs: Refs };
 

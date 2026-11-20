@@ -64,7 +64,7 @@ test('заглушка, глубокие ссылки и навигация с �
   await page.keyboard.press('Control+k');
   const dialog = page.getByRole('dialog', { name: text.search });
   await dialog.waitFor();
-  const search = dialog.getByRole('searchbox', { name: text.searchSections });
+  const search = dialog.getByRole('combobox', { name: text.searchSections });
   assert.ok(await search.evaluate((input) => input === document.activeElement));
   await search.fill('проверки');
   await search.press('Enter');

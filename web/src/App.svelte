@@ -7,6 +7,9 @@
   import PasswordChange from './PasswordChange.svelte';
   import Admin from './admin/Admin.svelte';
   import Backups from './backups/Backups.svelte';
+  import SearchDialog from './search/SearchDialog.svelte';
+  import TargetView from './search/TargetView.svelte';
+  import { searchTarget } from './search/model.ts';
   import { showTime } from './admin/model.ts';
   import { findSection, homePath, sections } from './routes.ts';
   import { gateForError, gateForMe, type Gate } from './session.ts';
@@ -14,14 +17,14 @@
 
   const mockMode = import.meta.env.DEV && import.meta.env.MODE === 'development';
   let pathname = $state(location.pathname);
+  let queryString = $state(location.search);
+  let target = $derived(searchTarget(pathname, queryString));
   let current = $derived(findSection(pathname));
   let title = $derived(current?.title ?? text.notFound);
   let connection = $state<'pending' | 'ready' | 'error'>('pending');
   let connectionDetail = $state('');
   let heading = $state<HTMLHeadingElement>();
-  let dialog = $state<HTMLDialogElement>();
-  let searchInput = $state<HTMLInputElement>();
-  let keywords = $state('');
+  let searchOpen = $state(false);
   let load: AbortController | undefined;
   let sessionLoad: AbortController | undefined;
   let gate = $state<Gate>('checking');
@@ -33,9 +36,6 @@
   let canBackups = $derived(gate === 'ready' && me?.permissions.sections.includes('backups') === true);
   let visibleSections = $derived(sections.filter((item) =>
     (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
-  ));
-  let found = $derived(visibleSections.filter((item) =>
-    item.title.toLocaleLowerCase('ru').includes(keywords.trim().toLocaleLowerCase('ru')),
   ));
 
   $effect(() => {
@@ -77,6 +77,7 @@
         return;
       }
       me = null;
+      searchOpen = false;
       gate = gateForError(error);
     }
   }
@@ -90,6 +91,7 @@
 
   function restored(createdAt: string) {
     sessionLoad?.abort();
+    searchOpen = false;
     me = null;
     adminDirty = false;
     notice = text.backups.restoredNotice(showTime(createdAt));
@@ -104,6 +106,7 @@
       // Сессия могла уже закрыться на сервере; экран входа нужен в любом случае.
     }
     me = null;
+    searchOpen = false;
     gate = 'login';
   }
 
@@ -114,6 +117,7 @@
     const lost = () => {
       if (gate !== 'ready') return;
       me = null;
+      searchOpen = false;
       notice = text.sessionLost;
       gate = 'login';
     };
@@ -129,12 +133,13 @@
   });
 
   function navigate(path: string) {
-    if (location.pathname === path) { dialog?.close(); return; }
+    if (location.pathname + location.search === path) { searchOpen = false; return; }
     if (adminDirty && !window.confirm(`${text.access.leaveTitle}. ${text.access.leaveHint}`)) return;
     adminDirty = false;
-    dialog?.close();
-    if (location.pathname !== path) history.pushState(null, '', path);
+    searchOpen = false;
+    history.pushState(null, '', path);
     pathname = location.pathname;
+    queryString = location.search;
     void tick().then(() => heading?.focus());
   }
 
@@ -145,15 +150,14 @@
   }
 
   function openSearch() {
-    if (!dialog || dialog.open) return; // на экране входа поиска нет
-    dialog.showModal();
-    searchInput?.focus();
+    if (gate === 'ready' || gate === 'offline') searchOpen = true;
   }
 
   function keyboard(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
-      openSearch();
+      if (searchOpen) searchOpen = false;
+      else openSearch();
     }
   }
 </script>
@@ -161,13 +165,14 @@
 <svelte:window onkeydown={keyboard} onfocus={() => { if (gate === 'ready') void loadSession(); }}
   onbeforeunload={(event) => { if (adminDirty) { event.preventDefault(); event.returnValue = ''; } }}
   onpopstate={() => {
-    if (pathname === location.pathname) return;
+    if (pathname === location.pathname && queryString === location.search) return;
     if (adminDirty && !window.confirm(`${text.access.leaveTitle}. ${text.access.leaveHint}`)) {
-      history.pushState(null, '', pathname);
+      history.pushState(null, '', pathname + queryString);
       return;
     }
     adminDirty = false;
     pathname = location.pathname;
+    queryString = location.search;
   }} />
 
 {#if gate === 'checking'}
@@ -242,6 +247,8 @@
       {:else if current?.path === '/backups'}
         {#if canBackups}<Backups onRestored={restored} />
         {:else}<p role="status">{text.accessDenied}</p>{/if}
+      {:else if target}
+        {#key pathname + queryString}<TargetView {target} />{/key}
       {:else}
       <div class="empty">
         <span class="empty-icon"><Icon name={current?.icon ?? 'missing'} size={30} /></span>
@@ -256,28 +263,9 @@
   </div>
 </div>
 
-<dialog bind:this={dialog} aria-labelledby="search-title" onclose={() => { keywords = ''; }}>
-  <div class="dialog-head">
-    <h2 id="search-title">{text.search}</h2>
-    <button class="icon-button" type="button" onclick={() => dialog?.close()} aria-label={text.close}>
-      <Icon name="close" />
-    </button>
-  </div>
-  <form onsubmit={(event) => { event.preventDefault(); if (found[0]) navigate(found[0].path); }}>
-    <input type="search" bind:this={searchInput} bind:value={keywords} aria-label={text.searchSections} placeholder={text.searchSections} />
-  </form>
-  {#if found.length}
-    <ul class="search-results">
-      {#each found as item (item.path)}
-        <li>
-          <a href={item.path} onclick={(event) => follow(event, item.path)}>
-            <Icon name={item.icon} size={18} />{item.title}
-          </a>
-        </li>
-      {/each}
-    </ul>
-  {:else}
-    <p class="no-results" role="status">{text.noSections}</p>
-  {/if}
-</dialog>
+{#if searchOpen}
+  {#key JSON.stringify(me?.permissions)}
+    <SearchDialog sections={visibleSections} onNavigate={navigate} onClose={() => { searchOpen = false; }} />
+  {/key}
+{/if}
 {/if}
