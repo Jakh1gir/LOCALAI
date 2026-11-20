@@ -10,7 +10,7 @@ from typing import Any
 
 from starlette.responses import FileResponse
 
-from engine import EngineError, documents, jobs
+from engine import EngineError, documents, jobs, sheets
 from engine.errors import FORBIDDEN, not_found
 from server import schemas
 from server.api import Call, Endpoint
@@ -196,12 +196,23 @@ def complete(call: Call) -> dict[str, Any]:
         stored = documents.store_text(
             call.tx, job["target_id"], job["target_version"], pages, "vision"
         )
+        if call.body.sheets:
+            stored["sheets"] = _store_sheets(call, job)
     except EngineError as error:
         if error.code != "document_version_gone":
             raise
         stored = {"state": "stale"}  # документ заменили во время чтения: текст не нужен
     done = jobs.finish(call.tx, job["id"], call.access.login)
     return {"job": _job(done), "result": stored}
+
+
+def _store_sheets(call: Call, job: dict[str, Any]) -> int:
+    try:
+        return sheets.store(call.tx, job["target_id"], job["target_version"], call.body.sheets)
+    except (KeyError, TypeError, ValueError) as error:
+        raise EngineError(
+            "sheet_invalid", f"Граф листа не разобран: {error}", field="sheets"
+        ) from None
 
 
 def fail(call: Call) -> dict[str, Any]:

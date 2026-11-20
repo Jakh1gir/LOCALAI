@@ -45,7 +45,9 @@ def search(
     *,
     limit: int = LIMIT,
     site_id: str | None = None,
+    meaning: list[tuple[int, float]] | None = None,
 ) -> dict[str, Any]:
+    """``meaning`` — фрагменты, ближайшие по смыслу: документы ищутся гибридно (AI-05)."""
     started = time.perf_counter()
     if not isinstance(raw, str) or not raw.strip():
         raise EngineError("search_empty", "Введите, что искать", field="q")
@@ -65,7 +67,12 @@ def search(
         "kks": found_kks,
         "records": records,
         "more": {"records": more},
-        "documents": documents.search(conn, viewer, tokens, limit),
+        "documents": (
+            documents.search(conn, viewer, tokens, limit)
+            if meaning is None
+            else documents.hybrid(conn, viewer, tokens, limit, meaning)
+        ),
+        "meaning": meaning is not None,
         "notes": knowledge.search(conn, viewer, tokens, limit),
         "glossary": glossary,
         "took_ms": round((time.perf_counter() - started) * 1000, 1),
