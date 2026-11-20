@@ -294,6 +294,13 @@ class TextPage(Body):
 
 class JobComplete(Body):
     pages: list[TextPage]
+    # Граф листов (VIS-04): [{page, width, height, parser, source: vector | scan,
+    # elements: [{id, kind, label, bbox: [x0, y0, x1, y1]}], edges: [{from, to, kind, points}]}].
+    sheets: list[dict[str, Any]] = []
+
+
+class SheetDecision(Body):
+    decision: Literal["confirm", "reject"]
 
 
 class JobFail(Body):

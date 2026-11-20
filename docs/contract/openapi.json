@@ -1258,6 +1258,15 @@
             },
             "title": "Pages",
             "type": "array"
+          },
+          "sheets": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Sheets",
+            "type": "array"
           }
         },
         "required": [
@@ -1991,6 +2000,24 @@
           "to_version"
         ],
         "title": "RollbackBody",
+        "type": "object"
+      },
+      "SheetDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "confirm",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "SheetDecision",
         "type": "object"
       },
       "TextPage": {
@@ -8067,6 +8094,473 @@
         "x-permission": "section.documents"
       }
     },
+    "/api/v1/documents/{id}/sheets": {
+      "get": {
+        "operationId": "sheets_listing",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Листы действующей версии документа: размер, источник, число элементов и соединений.",
+        "tags": [
+          "Схемы"
+        ],
+        "x-permission": "session"
+      }
+    },
+    "/api/v1/documents/{id}/sheets/{page}": {
+      "get": {
+        "operationId": "sheets_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Лист целиком для просмотра (VIS-09): элементы с рамками, ККС и соединения.",
+        "tags": [
+          "Схемы"
+        ],
+        "x-permission": "session"
+      }
+    },
+    "/api/v1/documents/{id}/sheets/{page}/connections": {
+      "get": {
+        "operationId": "sheets_connections",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "element",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Что соединено с элементом листа — на глубину до 5 шагов (VIS-06).",
+        "tags": [
+          "Схемы"
+        ],
+        "x-permission": "session"
+      }
+    },
+    "/api/v1/documents/{id}/sheets/{page}/elements/{eid}/decision": {
+      "post": {
+        "operationId": "sheets_decide",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "eid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Повтор запроса с тем же ключом возвращает прежний ответ",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SheetDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Подтвердить или отклонить сопоставление элемента с ККС (VIS-05).",
+        "tags": [
+          "Схемы"
+        ],
+        "x-permission": "section.documents"
+      }
+    },
+    "/api/v1/documents/{id}/sheets/{page}/path": {
+      "get": {
+        "operationId": "sheets_path",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Кратчайший путь между двумя элементами листа — для ответа и подсветки.",
+        "tags": [
+          "Схемы"
+        ],
+        "x-permission": "session"
+      }
+    },
     "/api/v1/documents/{id}/text": {
       "get": {
         "operationId": "documents_text",
@@ -10265,6 +10759,81 @@
           "ККС"
         ],
         "x-permission": "section.kks"
+      }
+    },
+    "/api/v1/kks/{id}/sheets": {
+      "get": {
+        "operationId": "sheets_occurrences",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Листы, на которых встречается объект ККС.",
+        "tags": [
+          "Схемы"
+        ],
+        "x-permission": "session"
       }
     },
     "/api/v1/knowledge/glossary": {
