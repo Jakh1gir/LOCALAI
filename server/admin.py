@@ -11,6 +11,11 @@
 
 ``create-certificate --host <имя> --host <адрес>`` создаёт сертификат HTTPS
 для сетевого режима в папке ``tls`` рядом с базой (SEC-04).
+
+``check-vectors`` проверяет на этом компьютере дополнение SQLite для поиска
+по смыслу (sqlite-vec): загружается ли, ищет ли правильно и как быстро; для
+сравнения — поиск в памяти. Код выхода 0 — дополнение работает, 2 — нет
+(сервер тогда ищет в памяти).
 """
 
 from __future__ import annotations
@@ -43,7 +48,11 @@ def main(argv: list[str] | None = None) -> int:
         "--host", action="append", required=True, help="имя или адрес сервера; можно несколько"
     )
     certificate.add_argument("--replace", action="store_true", help="заменить прежний")
+    vectors_check = commands.add_parser("check-vectors", help="проверить поиск по смыслу")
+    vectors_check.add_argument("--count", type=int, default=20000, help="сколько векторов")
     args = parser.parse_args(argv)
+    if args.command == "check-vectors":
+        return _check_vectors(args.count)
     if args.command == "create-certificate":
         return _certificate(tls_folder(args.db), args.host, args.replace)
     db = open_database(args.db)
@@ -81,6 +90,26 @@ def _certificate(folder: Path, hosts: list[str], replace: bool) -> int:
     print(f"Отпечаток SHA-256: {digest}")
     print("Сверьте отпечаток в браузере рабочего места при первом входе.")
     return 0
+
+
+def _check_vectors(count: int) -> int:
+    from server import vector_index
+
+    report = vector_index.check(count)
+    labels = {
+        "python": "Python", "system": "Система", "sqlite": "SQLite",
+        "load_extension": "Загрузка дополнений в Python", "numpy": "numpy",
+        "count": "Векторов в проверке", "extension": "Дополнение sqlite-vec",
+        "extension_error": "Ошибка дополнения", "extension_insert_s": "Запись индекса, с",
+        "extension_search_ms": "Поиск дополнением, мс", "extension_correct": "Дополнение ищет верно",
+        "memory_search_ms": "Поиск в памяти, мс", "memory_correct": "Память ищет верно",
+    }  # fmt: skip
+    for key, value in report.items():
+        print(f"{labels.get(key, key)}: {'нет' if value in (None, False) else value}")
+    works = bool(report.get("extension")) and report.get("extension_correct") is True
+    print("Итог: " + ("поиск по смыслу — дополнением sqlite-vec." if works else
+                      "дополнение не работает, сервер ищет по смыслу в памяти."))  # fmt: skip
+    return 0 if works else 2
 
 
 def _password(from_stdin: bool) -> str:

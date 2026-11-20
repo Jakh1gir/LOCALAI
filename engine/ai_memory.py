@@ -43,12 +43,15 @@ MAX_RETENTION = 3650
 # Настройки (KNOW-12, AI-15) --------------------------------------------------------
 
 
+MODEL_KEYS = ("model", "fallback", "embedding")
 DEFAULTS: dict[str, Any] = {
     "retention_days": 180,
     "cloud_allowed": False,
     # Основная и запасная модель (AI-01): None — модель, с которой запущена служба ИИ.
     "model": None,
     "fallback": None,
+    # Модель векторов для поиска по смыслу (AI-05): None — модель запуска службы.
+    "embedding": None,
 }
 
 
@@ -57,7 +60,7 @@ def settings(conn: sqlite3.Connection, *, secrets: bool = False) -> dict[str, An
     rows = conn.execute("SELECT key, value FROM ai_settings").fetchall()
     shown = DEFAULTS | {row["key"]: json.loads(row["value"]) for row in rows}
     if not secrets:
-        for key in ("model", "fallback"):
+        for key in MODEL_KEYS:
             if isinstance(shown[key], dict):
                 api_key = shown[key].get("api_key")
                 shown[key] = {
@@ -83,7 +86,7 @@ def set_settings(
     """
     changes: dict[str, Any] = {}
     for key, value in (models or {}).items():
-        if key in ("model", "fallback"):
+        if key in MODEL_KEYS:
             changes[key] = value
     if retention_days is not None:
         if (
@@ -113,8 +116,8 @@ def set_settings(
             (key, json.dumps(value)),
         )
     if changes:
-        shown = {key: value for key, value in changes.items() if key not in ("model", "fallback")}
-        for key in ("model", "fallback"):
+        shown = {key: value for key, value in changes.items() if key not in MODEL_KEYS}
+        for key in MODEL_KEYS:
             if key in changes:  # в журнал — без ключа доступа
                 value = changes[key]
                 shown[key] = {k: v for k, v in value.items() if k != "api_key"} if value else None

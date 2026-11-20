@@ -420,6 +420,77 @@ def search(
     return found
 
 
+_RRF = 60  # сглаживание в слиянии рангов: место в списке важнее разницы в оценках
+_ROW = (
+    "SELECT c.seq, c.page, c.text, d.id, d.title, d.type_id, t.name AS type_name"
+    " FROM chunks c JOIN documents d ON d.seq = c.document_seq"
+    " JOIN document_types t ON t.id = d.type_id"
+    " WHERE d.archived_at IS NULL AND c.version = d.version"
+)
+
+
+def hybrid(
+    conn: sqlite3.Connection,
+    viewer: Access,
+    tokens: list[str],
+    limit: int,
+    meaning: list[tuple[int, float]] | None,
+) -> list[dict[str, Any]]:
+    """Гибридный поиск (AI-05): слова и смысл — в один список.
+
+    ``meaning`` — фрагменты, ближайшие по смыслу (номер и сходство), из
+    индекса векторов. Два ранжированных списка сливаются по рангам
+    (reciprocal rank fusion): фрагмент, найденный и по словам, и по смыслу,
+    поднимается выше. ``via`` у результата — ``text``, ``meaning`` или
+    ``both``. Права, архив и версия документа проверяются здесь.
+    """
+    ranked: dict[int, dict[str, Any]] = {}
+    if tokens:
+        match = " AND ".join('"' + token.replace('"', '""') + '"' for token in tokens)
+        rows = conn.execute(
+            _ROW + " AND c.seq IN (SELECT rowid FROM chunk_fts WHERE chunk_fts MATCH ?)"
+            " ORDER BY d.updated_at DESC, c.ordinal LIMIT ?",
+            (match, limit * 5),
+        ).fetchall()
+        for place, row in enumerate(rows):
+            ranked[row["seq"]] = {"row": row, "score": 1 / (_RRF + place), "via": {"text"}}
+    if meaning:
+        marks = ",".join("?" * len(meaning))
+        rows = {
+            row["seq"]: row
+            for row in conn.execute(_ROW + f" AND c.seq IN ({marks})", [seq for seq, _ in meaning])
+        }
+        for place, (seq, similarity) in enumerate(meaning):
+            if seq not in rows:
+                continue  # старая версия документа или архив
+            item = ranked.setdefault(seq, {"row": rows[seq], "score": 0.0, "via": set()})
+            item["score"] += 1 / (_RRF + place)
+            item["via"].add("meaning")
+            item["similarity"] = round(similarity, 3)
+    found: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in sorted(ranked.values(), key=lambda entry: -entry["score"]):
+        row = item["row"]
+        if not viewer.sees_documents(row["type_id"]) or (row["id"], row["page"]) in seen:
+            continue
+        seen.add((row["id"], row["page"]))
+        hit = [token for token in tokens if token in text.fold(row["text"])]
+        found.append(
+            {
+                "document_id": row["id"],
+                "title": row["title"],
+                "type": row["type_name"],
+                "page": row["page"],
+                "snippet": _snippet(row["text"], hit),
+                "via": "both" if len(item["via"]) == 2 else next(iter(item["via"])),
+                "similarity": item.get("similarity"),
+            }
+        )
+        if len(found) >= limit:
+            break
+    return found
+
+
 # Мелочи -----------------------------------------------------------------------
 
 
