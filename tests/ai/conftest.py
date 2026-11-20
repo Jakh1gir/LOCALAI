@@ -58,11 +58,44 @@ class Scripted(Model):
         yield from self.script(messages, tools)
 
 
+# Слова одного смысла — одно число вектора: «давление» и «напор» близки, а слов общих нет.
+MEANINGS = (
+    ("насос", "агрегат", "пэн"), ("давлен", "напор"), ("кабел", "провод", "жил"),
+    ("ремонт", "обслужив", "замен"), ("шкаф", "панел"), ("температ", "нагрев"),
+)  # fmt: skip
+
+
+class Meaning(Model):
+    """Модель векторов для тестов: вектор — сколько слов каждого смысла в тексте."""
+
+    name = "смысл-тест"
+    provider = "ollama"
+
+    def __init__(self) -> None:
+        self.up = True
+        self.calls = 0
+
+    def available(self) -> bool:
+        return self.up
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.calls += 1
+        result = []
+        for text in texts:
+            words = text.lower().replace("ё", "е").split()
+            vector = [0.01] * 32
+            for place, stems in enumerate(MEANINGS):
+                vector[place] += sum(1 for word in words for stem in stems if word.startswith(stem))
+            result.append(vector)
+        return result
+
+
 class LocalLink:
     """Связь сервера со службой ИИ в том же процессе."""
 
     def __init__(self, model: Model) -> None:
         self.model = model
+        self.meaning = Meaning()
         self.app: Any = None
         self.up = True
         self.payloads: list[dict[str, Any]] = []
@@ -72,7 +105,18 @@ class LocalLink:
             return None
         chosen = service._chosen({"models": models or {}}, self.model)
         return {"service": "ai", "model": chosen[0].status(),
-                "fallback": chosen[1].status() if len(chosen) > 1 else None}  # fmt: skip
+                "fallback": chosen[1].status() if len(chosen) > 1 else None,
+                "embedding": self.meaning.status(), "runtime": None}  # fmt: skip
+
+    def embed(
+        self, texts: list[str], config: dict[str, Any] | None, *, timeout: float = 120.0
+    ) -> dict[str, Any]:
+        if not self.up:
+            raise ai_link.AiUnavailable("остановлена")
+        if not self.meaning.available():
+            return {"model": None, "dim": None, "vectors": []}
+        vectors = self.meaning.embed(texts) if texts else []
+        return {"model": self.meaning.name, "dim": 32 if texts else None, "vectors": vectors}
 
     def models(self, config: dict[str, Any]) -> dict[str, Any]:
         found = build(Config.parse(config))

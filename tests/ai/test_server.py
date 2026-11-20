@@ -135,7 +135,8 @@ def test_old_dialogs_are_purged_by_retention(app, admin, plant):
 
 def test_cloud_model_needs_explicit_confirmation(app, admin, plant, model):
     assert admin.get("/ai/settings").json() == {
-        "retention_days": 180, "cloud_allowed": False, "model": None, "fallback": None
+        "retention_days": 180, "cloud_allowed": False, "model": None, "fallback": None,
+        "embedding": None,
     }  # fmt: skip
     refused = admin.put("/ai/settings", {"cloud_allowed": True})
     assert refused.status == 400 and refused.json()["error"]["code"] == "ai_cloud_confirm_required"

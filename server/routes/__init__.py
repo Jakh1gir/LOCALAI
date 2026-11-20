@@ -13,6 +13,7 @@ from server.routes import (
     knowledge,
     records,
     search,
+    sheets,
     structure,
     system,
 )
@@ -32,4 +33,5 @@ ENDPOINTS = [
     *documents.ENDPOINTS,
     *knowledge.ENDPOINTS,
     *ai.ENDPOINTS,
+    *sheets.ENDPOINTS,
 ]

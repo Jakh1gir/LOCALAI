@@ -42,6 +42,11 @@ def main(argv: list[str] | None = None) -> None:
         default="http://127.0.0.1:8080",
         help="адрес OpenAI-совместимого сервера (llama.cpp, vLLM, LM Studio)",
     )
+    parser.add_argument(
+        "--embed-model",
+        default=models.EMBED,
+        help="модель векторов в Ollama для поиска по смыслу; none — без неё",
+    )
     parser.add_argument("--ollama-bin", help="путь к ollama; по умолчанию ищется сам")
     parser.add_argument(
         "--no-ollama-start",
@@ -76,7 +81,16 @@ def main(argv: list[str] | None = None) -> None:
         choose=lambda: chosen.name if chosen.available() else None,
     )
     app = create_app(
-        server_url=args.server, key=key, model=chosen, cafile=args.cafile, runtime=runtime
+        server_url=args.server,
+        key=key,
+        model=chosen,
+        cafile=args.cafile,
+        runtime=runtime,
+        embedding=(
+            models.Config(provider="none")
+            if args.embed_model == "none"
+            else models.Config(url=args.ollama, name=args.embed_model, gpu=False)
+        ),
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 

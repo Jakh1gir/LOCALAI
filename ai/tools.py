@@ -182,6 +182,7 @@ class Toolbox:
             "aggregate": self.aggregate,
             "trace": self.trace,
             "import_preview": self.import_preview,
+            "sheet_graph": self.sheet_graph,
         }
         if allow_propose:
             self._handlers["propose"] = self.propose
@@ -207,128 +208,10 @@ class Toolbox:
     # Описания для модели ----------------------------------------------------------
 
     def specs(self) -> list[dict[str, Any]]:
-        names = [item["name"] for item in self.catalog.datasets]
-        dataset = {
-            "type": "string",
-            "description": "Реестр: " + (", ".join(f"«{name}»" for name in names) or "нет"),
-        }
-        if names:
-            dataset["enum"] = names
-        where = {
-            "type": "array",
-            "description": "Условия «И»: {field: название или ключ поля, op: eq|ne|lt|lte|gt|gte|"
-            "in|contains|starts|empty|not_empty, value}",
-            "items": {"type": "object"},
-        }
-        specs = [
-            _spec("schema", "Реестры и поля, доступные пользователю", {}),
-            _spec(
-                "search",
-                "Общий поиск: коды ККС, записи всех реестров, документы, заметки, словарь",
-                {"text": {"type": "string"}},
-                ["text"],
-            ),
-            _spec(
-                "search_documents",
-                "Поиск по тексту документов и подтверждённым заметкам знаний",
-                {"text": {"type": "string"}},
-                ["text"],
-            ),
-            _spec(
-                "kks_card",
-                "Объект по коду ККС, псевдониму или коду сигнала: карточка, связанные записи;"
-                " для кода сигнала — строка сигнала (шкаф, клеммы, кабель)",
-                {"code": {"type": "string"}},
-                ["code"],
-            ),
-            _spec(
-                "record",
-                "Запись целиком по её id (ref из результатов); history=true — кто и что менял",
-                {"id": {"type": "string"}, "history": {"type": "boolean"}},
-                ["id"],
-            ),
-            _spec(
-                "query",
-                "Записи реестра по условиям (до 20)",
-                {
-                    "dataset": dataset,
-                    "where": where,
-                    "search": {"type": "string"},
-                    "kks": {"type": "string", "description": "код ККС: записи, связанные с ним"},
-                    "limit": {"type": "integer"},
-                },
-                ["dataset"],
-            ),
-            _spec(
-                "aggregate",
-                "Подсчёт записей реестра по условиям; с group_by — число записей по значениям"
-                " поля; stat (min, max, sum, avg) с field — итог числового поля или даты."
-                " Любые числа в ответе бери только отсюда",
-                {
-                    "dataset": dataset,
-                    "where": where,
-                    "search": {"type": "string"},
-                    "kks": {"type": "string"},
-                    "group_by": {"type": "string", "description": "название или ключ поля"},
-                    "stat": {"type": "string", "enum": ["count", "min", "max", "sum", "avg"]},
-                    "field": {"type": "string", "description": "поле для stat"},
-                },
-                ["dataset"],
-            ),
-            _spec(
-                "trace",
-                "Связи объекта: всё, что связано с кодом ККС (to пусто), или путь между двумя кодами",
-                {"from": {"type": "string"}, "to": {"type": "string"}},
-                ["from"],
-            ),
-        ]
-        if self.import_id:
-            specs.append(
-                _spec(
-                    "import_preview",
-                    "Открытый в мастере импорта лист Excel: заголовки, первые строки, подсказки"
-                    " сопоставления с полями реестра",
-                    {
-                        "sheet": {"type": "string"},
-                        "header_row": {"type": "integer"},
-                        "dataset": dataset,
-                    },
-                    ["sheet"],
-                )
-            )
-        if self.allow_propose:
-            specs.append(
-                _spec(
-                    "propose",
-                    "Предложить изменение, которое человек примет или отклонит: правка записи"
-                    " (kind=record_edit, record_id, values: {поле: значение}); заметка знаний"
-                    " (kind=note, title, body); связь документа с объектом (kind=document_link,"
-                    " document_id, code — код ККС, или record_id, page); сопоставление столбцов"
-                    " Excel в мастере импорта (kind=column_mapping, sheet, dataset,"
-                    " mapping: {столбец: поле}, key)",
-                    {
-                        "kind": {
-                            "type": "string",
-                            "enum": ["record_edit", "note", "document_link", "column_mapping"],
-                        },
-                        "summary": {"type": "string"},
-                        "record_id": {"type": "string"},
-                        "values": {"type": "object"},
-                        "title": {"type": "string"},
-                        "body": {"type": "string"},
-                        "document_id": {"type": "string"},
-                        "code": {"type": "string"},
-                        "page": {"type": "string"},
-                        "sheet": {"type": "string"},
-                        "header_row": {"type": "integer"},
-                        "dataset": dataset,
-                        "mapping": {"type": "object"},
-                        "key": {"type": "string"},
-                    },
-                    ["kind", "summary"],
-                )
-            )
-        return specs
+        """Описания инструментов для модели — из схемы пользователя (ai/specs.py)."""
+        from ai.specs import build
+
+        return build(self)
 
     # Реализация ---------------------------------------------------------------------
 
@@ -339,7 +222,7 @@ class Toolbox:
         needle = str(args.get("text") or "").strip()[:200]
         if not needle:
             return {"error": "bad_arguments", "message": "Нужен текст поиска"}
-        reply = self.api.get("/search", q=needle, limit=10)
+        reply = self.api.get("/search", q=needle, limit=10, mode="hybrid")
         if not reply.ok:
             return _failure(reply)
         found = reply.body
@@ -368,6 +251,7 @@ class Toolbox:
                 "title": item["title"],
                 "page": item["page"],
                 "text": item["snippet"],
+                "found_by": item.get("via", "text"),
             }
             for item in found["documents"]
         ]
@@ -676,6 +560,62 @@ class Toolbox:
         return {"draft": reply.body["id"], "state": reply.body["state"],
                 "note": "Черновик создан; изменение произойдёт, только если человек его примет"}  # fmt: skip
 
+    def sheet_graph(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Граф листа (VIS-06): соединения элемента, путь, листы объекта ККС."""
+        depth = args.get("depth") if isinstance(args.get("depth"), int) else 1
+        if args.get("document_id") and args.get("page") and args.get("element"):
+            page = f"/documents/{args['document_id']}/sheets/{args['page']}"
+            if args.get("to"):
+                reply = self.api.get(page + "/path", **{"from": args["element"], "to": args["to"]})
+            else:
+                reply = self.api.get(page + "/connections", element=args["element"], depth=depth)
+            return self._sheet_result(reply)
+        found, _ = self.resolve(args.get("code"))
+        if found is None:
+            return {"error": "not_found", "message": f"Код «{args.get('code')}» не найден"}
+        reply = self.api.get(f"/kks/{found['id']}/sheets")
+        if not reply.ok:
+            return _failure(reply)
+        places = reply.body["items"][:5]
+        result: dict[str, Any] = {"code": found["code"], "sheets": []}
+        for item in places[:3]:
+            near = self.api.get(
+                f"/documents/{item['document_id']}/sheets/{item['page']}/connections",
+                element=item["element"], depth=depth,
+            )  # fmt: skip
+            shown = self._sheet_result(near)
+            shown["title"] = item["title"]
+            shown["confirmed"] = item["state"] == "confirmed"
+            result["sheets"].append(shown)
+        result["more_sheets"] = max(0, len(reply.body["items"]) - 3)
+        return result
+
+    def _sheet_result(self, reply: Reply) -> dict[str, Any]:
+        if not reply.ok:
+            return _failure(reply)
+        found = reply.body
+        title = found.get("title") or "схема"
+        ref = self.sources.add("document", found["document_id"], title, page=found["page"])
+        shown: dict[str, Any] = {
+            "ref": ref,
+            "document_id": found["document_id"],
+            "page": found["page"],
+            "by_scan": found["source"] == "scan",  # по скану — подсказка, не факт
+            "elements": [
+                {
+                    "id": item["id"],
+                    "label": item["label"],
+                    "kind": item["kind"],
+                    "kks": (item["kks"] or {}).get("code"),
+                    "steps": item.get("distance"),
+                }
+                for item in found["elements"][:60]
+            ],
+        }
+        if "found" in found:
+            shown["path_found"] = found["found"]
+        return shown
+
     def import_preview(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self.import_id:
             return {"error": "not_found", "message": "Мастер импорта не открыт"}
@@ -765,19 +705,6 @@ def _signal_row(code: str, mentions: list[dict[str, Any]]) -> dict[str, Any] | N
         if fold(str(item.get("label", ""))) == wanted or fold(str(match.get("text", ""))) == wanted:
             return item
     return None
-
-
-def _spec(
-    name: str, description: str, properties: dict[str, Any], required: list[str] | None = None
-) -> dict[str, Any]:
-    return {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": description,
-            "parameters": {"type": "object", "properties": properties, "required": required or []},
-        },
-    }
 
 
 def _no_dataset(name: Any) -> dict[str, Any]:
