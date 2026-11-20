@@ -9,6 +9,7 @@
             "default": {
               "dataset_id": null,
               "document_id": null,
+              "import_id": null,
               "kks_id": null,
               "record_ids": []
             }
@@ -51,6 +52,18 @@
             ],
             "default": null,
             "title": "Document Id"
+          },
+          "import_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Import Id"
           },
           "kks_id": {
             "anyOf": [
@@ -115,7 +128,9 @@
           "kind": {
             "enum": [
               "record_edit",
-              "note"
+              "note",
+              "document_link",
+              "column_mapping"
             ],
             "title": "Kind",
             "type": "string"
@@ -874,6 +889,74 @@
           }
         },
         "title": "FieldPatch",
+        "type": "object"
+      },
+      "FieldStats": {
+        "additionalProperties": false,
+        "description": "Итоги числового поля или поля даты при тех же условиях, что у подсчёта.",
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "const": "any",
+                "type": "string"
+              }
+            ],
+            "default": false,
+            "title": "Archived"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "kks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kks"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Search"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Where"
+          }
+        },
+        "required": [
+          "field"
+        ],
+        "title": "FieldStats",
         "type": "object"
       },
       "GlossaryTerm": {
@@ -6211,6 +6294,91 @@
           }
         },
         "summary": "Страница записей реестра на языке запросов.",
+        "tags": [
+          "Записи"
+        ],
+        "x-permission": "dataset.view"
+      }
+    },
+    "/api/v1/datasets/{id}/records/stats": {
+      "post": {
+        "operationId": "records_field_stats",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldStats"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Выполнено"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Ошибка: код, текст на русском, поле"
+          }
+        },
+        "summary": "Минимум, максимум, сумма и среднее поля — средствами SQL (AI-04).",
         "tags": [
           "Записи"
         ],

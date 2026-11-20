@@ -71,6 +71,7 @@ def answer(
     parts: list[str] = []
     sources = Sources()
     status, path = "done", None
+    box: Toolbox | None = None
 
     def on_tool(name: str, args: dict[str, Any]) -> None:
         steps.append({"tool": name, "args": args})
@@ -97,6 +98,7 @@ def answer(
                 on_draft=on_draft,
                 on_tool=on_tool,
             )
+            box.import_id = (payload.get("context") or {}).get("import_id")
             cloud = bool(payload.get("cloud_allowed"))
             ready = [item for item in candidates if (not item.remote or cloud) and item.available()]
             usable = bool(ready)
@@ -140,7 +142,14 @@ def answer(
         yield from _drain(pending)
         status = "error"
         yield say(f"\n\nМодель ИИ не ответила: {error}. Поиск и точные вопросы работают.")
+    except Exception as error:  # noqa: BLE001 — поток ответа должен закончиться строкой done
+        yield from _drain(pending)
+        status = "error"
+        yield say(f"\n\nВнутренняя ошибка ИИ-службы: {type(error).__name__}.")
     full = "".join(parts)
+    timings = box.timings if box is not None else []
+    for step, took in zip(steps, timings, strict=False):
+        step["ms"] = took  # PERF-11: время инструментов отдельно от модели
     yield {
         "type": "done",
         "status": status,
@@ -245,6 +254,11 @@ def _system(box: Toolbox, context: dict[str, Any]) -> str:
         lines.append(f"Открыта карточка ККС (для kks_card): {context['kks_id']}.")
     if context.get("document_id"):
         lines.append(f"Открыт документ {context['document_id']}.")
+    if context.get("import_id"):
+        lines.append(
+            "Открыт мастер импорта Excel: лист смотри инструментом import_preview,"
+            " сопоставление столбцов предлагай через propose (kind=column_mapping)."
+        )
     shown = ("Контекст интерфейса:\n" + "\n".join(lines)) if lines else ""
     return SYSTEM.format(
         propose=PROPOSE_ON if box.allow_propose else PROPOSE_OFF,

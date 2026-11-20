@@ -87,6 +87,12 @@ class RecordCount(Body):
     kks: str | None = None
 
 
+class FieldStats(RecordCount):
+    """Итоги числового поля или поля даты при тех же условиях, что у подсчёта."""
+
+    field: str
+
+
 class ValueCounts(RecordCount):
     """Число записей по значениям поля при тех же условиях, что у подсчёта."""
 
@@ -353,6 +359,7 @@ class AiContext(Body):
     record_ids: list[str] = Field(default_factory=list, max_length=50)
     kks_id: str | None = None
     document_id: str | None = None
+    import_id: str | None = None
 
 
 class AiAsk(Body):
@@ -366,7 +373,7 @@ class AiFeedback(Body):
 
 
 class AiDraftCreate(Body):
-    kind: Literal["record_edit", "note"]
+    kind: Literal["record_edit", "note", "document_link", "column_mapping"]
     summary: str
     payload: dict[str, Any]
 

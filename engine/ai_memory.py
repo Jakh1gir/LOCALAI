@@ -22,7 +22,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from engine import access, knowledge, records, structure, text
+from engine import access, documents, knowledge, records, structure, text
 from engine.access import Access
 from engine.database import Tx, dumps
 from engine.errors import CONFLICT, FORBIDDEN, EngineError, not_found
@@ -35,7 +35,7 @@ HISTORY = 6  # реплик прошлого диалога уходит мод�
 PAGE = 50
 STATUSES = ("done", "limit", "no_model", "no_service", "error")
 PATHS = ("fast", "model")
-DRAFT_KINDS = ("record_edit", "note")
+DRAFT_KINDS = ("record_edit", "note", "document_link", "column_mapping")
 DRAFT_STATES = ("proposed", "accepted", "rejected")
 MAX_RETENTION = 3650
 
@@ -308,7 +308,8 @@ def propose(
     if kind not in DRAFT_KINDS:
         raise EngineError(
             "ai_draft_kind",
-            "Черновик: правка записи (record_edit) или заметка (note)",
+            "Черновик: правка записи (record_edit), заметка (note), связь документа"
+            " (document_link) или сопоставление столбцов (column_mapping)",
             field="kind",
         )
     if not isinstance(payload, dict):
@@ -316,8 +317,12 @@ def propose(
     shown = text.clean_name(summary, "Пояснение", limit=500)
     if kind == "record_edit":
         target_id, version, stored = _check_record_edit(tx.conn, viewer, payload)
-    else:
+    elif kind == "note":
         target_id, version, stored = None, None, _check_note(tx.conn, viewer, payload)
+    elif kind == "document_link":
+        target_id, version, stored = _check_document_link(tx.conn, viewer, payload)
+    else:
+        target_id, version, stored = _check_mapping(tx.conn, viewer, payload)
     draft_id = text.new_id()
     tx.conn.execute(
         "INSERT INTO ai_drafts (id, kind, state, user_id, message_id, target_id, target_version,"
@@ -360,12 +365,20 @@ def accept(tx: Tx, viewer: Access, draft_id: str) -> dict[str, Any]:
         _record_rights(tx.conn, viewer, record, payload["values"])
         records.update(tx, row["target_id"], payload["values"], row["target_version"])
         result_id = row["target_id"]
-    else:
+    elif row["kind"] == "note":
         note = knowledge.create(
             tx, viewer, title=payload["title"], body=payload["body"],
             scope=payload["scope"], sources=payload["sources"], origin="ai",
         )  # fmt: skip
         result_id = note["id"]
+    elif row["kind"] == "document_link":
+        documents.link(tx, viewer, payload["document_id"], payload["kind"], payload["target_id"])
+        result_id = payload["document_id"]
+    else:
+        # Сопоставление применяет человек в мастере импорта (шаг «сопоставление»):
+        # принятие только проверяет, что пакет всё ещё его и не применён.
+        _check_mapping(tx.conn, viewer, payload)
+        result_id = payload["import_id"]
     tx.conn.execute(
         "UPDATE ai_drafts SET state = 'accepted', result_id = ?, decided_at = ? WHERE seq = ?",
         (result_id, tx.now, row["seq"]),
@@ -440,6 +453,62 @@ def _record_rights(
             field=locked[0],
         )  # fmt: skip
     return schema
+
+
+def _check_document_link(
+    conn: sqlite3.Connection, viewer: Access, payload: dict[str, Any]
+) -> tuple[str, None, dict[str, Any]]:
+    kind = payload.get("kind") or "kks"
+    target_id = documents.check_link(
+        conn, viewer, payload.get("document_id"), kind, payload.get("target_id")
+    )
+    page = payload.get("page")
+    if page is not None and (not isinstance(page, str | int) or len(str(page)) > 20):
+        raise EngineError("ai_draft_invalid", "Страница — до 20 знаков", field="payload.page")
+    stored = {"document_id": payload["document_id"], "kind": kind, "target_id": target_id,
+              "page": None if page is None else str(page)}  # fmt: skip
+    return payload["document_id"], None, stored
+
+
+def _check_mapping(
+    conn: sqlite3.Connection, viewer: Access, payload: dict[str, Any]
+) -> tuple[str, None, dict[str, Any]]:
+    """Сопоставление столбцов листа с полями реестра для своего неприменённого пакета импорта."""
+    import_id, dataset_id = payload.get("import_id"), payload.get("dataset_id")
+    batch = conn.execute(
+        "SELECT status FROM import_batches WHERE id = ? AND user_id = ?",
+        (import_id, viewer.user_id),
+    ).fetchone()
+    if batch is None:
+        raise not_found("import", str(import_id))
+    if batch["status"] == "applied":
+        raise EngineError("import_applied", "Пакет импорта уже применён", status=CONFLICT)
+    if not isinstance(dataset_id, str) or not viewer.can(dataset_id, "view"):
+        raise not_found("dataset", str(dataset_id))
+    if not viewer.can(dataset_id, "import"):
+        raise EngineError("forbidden", "Недостаточно прав: импорт в реестр", status=FORBIDDEN,
+                          details={"permission": "dataset.import"})  # fmt: skip
+    schema = structure.load_schema(conn, structure.get_dataset(conn, dataset_id)["type_id"])
+    allowed = {field.key for field in schema.active()} - viewer.hidden_keys(schema)
+    mapping, sheet = payload.get("mapping"), payload.get("sheet")
+    if not isinstance(sheet, str) or not sheet.strip():
+        raise EngineError("ai_draft_invalid", "Нужен лист книги", field="payload.sheet")
+    if not isinstance(mapping, dict) or not mapping or len(mapping) > 200:
+        raise EngineError("ai_draft_invalid", "Нужно сопоставление: {столбец: поле}",
+                          field="payload.mapping")  # fmt: skip
+    for column, key in mapping.items():
+        if not isinstance(column, str) or len(column) > 200 or key not in allowed:
+            raise EngineError("ai_draft_invalid", f"Столбец «{column}»: нет поля «{key}»",
+                              field="payload.mapping")  # fmt: skip
+    key = payload.get("key")
+    if key is not None and key not in allowed:
+        raise EngineError("ai_draft_invalid", f"Нет поля-ключа «{key}»", field="payload.key")
+    header_row = payload.get("header_row", 1)
+    if not isinstance(header_row, int) or isinstance(header_row, bool) or header_row < 1:
+        raise EngineError("ai_draft_invalid", "Строка заголовков — с 1", field="payload.header_row")
+    stored = {"import_id": import_id, "sheet": sheet, "header_row": header_row,
+              "dataset_id": dataset_id, "mapping": mapping, "key": key}  # fmt: skip
+    return import_id, None, stored
 
 
 def _check_note(
