@@ -8,6 +8,7 @@ export const sections = [
   { path: '/tools', title: text.tools, icon: 'tools' },
   { path: '/checks', title: text.checks, icon: 'checks' },
   { path: '/knowledge', title: text.knowledge, icon: 'knowledge' },
+  { path: '/chat', title: text.chat, icon: 'chat' },
   { path: '/assistant', title: text.assistant, icon: 'assistant' },
   { path: '/backups', title: text.backupsTitle, icon: 'imports' },
   { path: '/admin', title: text.admin, icon: 'admin' },

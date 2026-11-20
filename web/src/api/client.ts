@@ -1,3 +1,4 @@
+import type { ChatPage, EventPage, Message, ReadState, Revision } from '../chat/types.ts';
 import { text } from '../text.ts';
 import type { paths } from './contract.d.ts';
 import type {
@@ -5,7 +6,7 @@ import type {
   Permission, PermissionCatalog, Role, RoleCreate, RoleDetails, RoleUpdate,
   TemporaryUser, User, UserCreate, UserUpdate, RecordCreate, RecordDetail, RecordPage,
   RecordQuery, RecordRow, RecordType, RecordUpdate, RecordValues, TypeDetails, KksRules, KksResolution,
-  Backup, BackupEntry, BackupRestoreResult,
+  Backup, BackupEntry, BackupRestoreResult, KksCard,
 } from './types.ts';
 
 type ApiPath = keyof paths;
@@ -150,7 +151,7 @@ export function createApiClient({
       credentials: 'same-origin',
     });
     // Создание и восстановление копий сервер не повторяет по ключу.
-    return await send(outgoing, fetchRequest, !backupWrite) as T;
+    return await send(outgoing, fetchRequest, !backupWrite && path !== '/api/v1/events') as T;
   }
 
   return {
@@ -193,6 +194,31 @@ export function createApiClient({
     resolveKks: (siteId: string, code: string, signal?: AbortSignal) => request<KksResolution>('/api/v1/sites/{id}/kks/resolve', {
       id: siteId, query: { code }, signal,
     }),
+    getKksCard: (id: string, signal?: AbortSignal) => request<KksCard>('/api/v1/kks/{id}', { id, signal }),
+    events: (after?: number, wait = 25, signal?: AbortSignal) => request<EventPage>('/api/v1/events', {
+      query: { after: after?.toString(), wait: after === undefined ? undefined : String(wait) }, signal,
+    }),
+    messages: (page: { after?: number; before?: number; limit?: number } = {}, signal?: AbortSignal) =>
+      request<ChatPage>('/api/v1/chat/messages', {
+        query: { after: page.after?.toString(), before: page.before?.toString(), limit: page.limit?.toString() }, signal,
+      }),
+    postMessage: (text: string) => request<Message>('/api/v1/chat/messages', { method: 'POST', body: { text } }),
+    editMessage: (id: string, version: number, text: string) => request<Message>('/api/v1/chat/messages/{id}', {
+      id, method: 'PATCH', body: { version, text },
+    }),
+    deleteMessage: (id: string, version: number) => request<Message>('/api/v1/chat/messages/{id}', {
+      id, method: 'DELETE', query: { version: String(version) },
+    }),
+    hideMessage: (id: string, reason: string) => request<Message>('/api/v1/chat/messages/{id}/hide', {
+      id, method: 'POST', body: { reason },
+    }),
+    unhideMessage: (id: string) => request<Message>('/api/v1/chat/messages/{id}/unhide', { id, method: 'POST' }),
+    messageHistory: (id: string, signal?: AbortSignal) =>
+      request<Items<Revision>>('/api/v1/chat/messages/{id}/history', { id, signal }),
+    findMessages: (q: string, signal?: AbortSignal) =>
+      request<Items<Message>>('/api/v1/chat/search', { query: { q }, signal }),
+    readChat: (seq: number, signal?: AbortSignal) =>
+      request<ReadState>('/api/v1/chat/read', { method: 'POST', body: { seq }, signal }),
     listBackups: (signal?: AbortSignal) => request<Items<BackupEntry>>('/api/v1/backups', { signal }),
     createBackup: (password: string, label?: string) => request<Backup>('/api/v1/backups', {
       method: 'POST', body: { password, label: label || null },

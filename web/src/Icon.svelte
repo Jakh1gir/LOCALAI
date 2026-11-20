@@ -8,6 +8,7 @@
     tools: 'm4 19 7-7m-4 3 3 3m2-7a5 5 0 0 1 6-6l-3 3 1 2 2 1 3-3a5 5 0 0 1-6 6l-7 7',
     checks: 'M4 6h16v14H4zM4 10h16M8 4v4m8-4v4m-7 7 2 2 4-4',
     knowledge: 'M3 5h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5v14h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3zM12 9v12',
+    chat: 'M3 4h14v10H9l-4 3v-3H3zM10 17h5l4 3v-3h2V8',
     assistant: 'M5 6h14v10h-8l-4 4v-4H5zM9 10h6m-6 3h4',
     admin: 'M4 6h16M4 12h16M4 18h16M8 4v4m8 2v4m-6 2v4',
     search: 'M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0m-2 4 5 5',
