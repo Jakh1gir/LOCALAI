@@ -67,6 +67,12 @@ def fake_ollama(seen: list[dict[str, Any]]) -> Starlette:
         "embed:latest": ("335M", ["embedding"]),
     }
 
+    async def embed(request: Request) -> JSONResponse:
+        body = await request.json()
+        seen.append(body)
+        return JSONResponse({"embeddings": [[float(len(text))] + [0.5] * 1023
+                                            for text in body["input"]]})  # fmt: skip
+
     async def tags(_request: Request) -> JSONResponse:
         return JSONResponse({"models": [
             {"name": name, "digest": name, "size": 2_000_000_000,
@@ -119,6 +125,7 @@ def fake_ollama(seen: list[dict[str, Any]]) -> Starlette:
         routes=[
             Route("/api/tags", tags),
             Route("/api/show", show, methods=["POST"]),
+            Route("/api/embed", embed, methods=["POST"]),
             Route("/api/chat", chat, methods=["POST"]),
         ]
     )
@@ -395,3 +402,22 @@ def test_model_config_is_checked():
             Config.parse(bad)
     assert Config.parse({"url": "http://10.1.2.3:11434"}).remote is True
     assert Config.parse(None).provider == "none"
+
+
+def test_ai_service_embeds_with_ollama_on_cpu(stack):
+    link = ai_link.AiLink(stack["url"]["ai"], stack["key"])
+    config = {"url": stack["url"]["ollama"], "name": "embed", "gpu": False}
+    probe = link.embed([], config)
+    assert probe == {"model": "embed:latest", "dim": None, "vectors": []}
+    found = link.embed(["напор", "давление насоса"], config)
+    assert found["model"] == "embed:latest" and found["dim"] == 1024
+    assert [vector[0] for vector in found["vectors"]] == [5.0, 15.0]
+    sent = stack["seen"][-1]
+    assert sent == {"model": "embed:latest", "input": ["напор", "давление насоса"],
+                    "truncate": True, "options": {"num_gpu": 0}}  # fmt: skip
+    missing = link.embed(["x"], {"url": stack["url"]["ollama"], "name": "нет-модели"})
+    assert missing == {"model": None, "dim": None, "vectors": []}
+    status = Browser(stack["url"]["server"]).call("GET", "/ai/status")
+    assert status["embedding"]["name"] == "qwen3-embedding:0.6b"  # по умолчанию, не скачана
+    assert status["embedding"]["available"] is False
+    assert status["vectors"] == {"model": None, "done": 0, "total": 0}

@@ -390,6 +390,7 @@ class AiSettings(Body):
     # явный null — модель запуска службы.
     model: dict[str, Any] | None = None
     fallback: dict[str, Any] | None = None
+    embedding: dict[str, Any] | None = None
 
 
 class AiModelCheck(Body):

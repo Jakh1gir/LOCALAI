@@ -16,6 +16,7 @@ from server import ai_link, api
 from server import backups as backup_files
 from server.files import FileStore
 from server.routes import ENDPOINTS
+from server.vector_index import VectorIndex
 from server.worker import Worker
 
 
@@ -45,8 +46,9 @@ def create_app(
     if ai is None:
         url = ai_url or os.environ.get("LOCALAI_AI_URL") or ai_link.DEFAULT_URL
         ai = ai_link.AiLink(url, ai_link.load_key(Path(db.path).resolve().parent))
-    server = api.Server(db, folder, work, store, ai)
-    worker = Worker(db, store)
+    index = VectorIndex()
+    server = api.Server(db, folder, work, store, ai, index)
+    worker = Worker(db, store, ai)
 
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
@@ -71,4 +73,5 @@ def create_app(
     app.state.worker = worker
     app.state.ai = ai
     app.state.grants = server.grants
+    app.state.vectors = index
     return app

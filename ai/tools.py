@@ -339,7 +339,7 @@ class Toolbox:
         needle = str(args.get("text") or "").strip()[:200]
         if not needle:
             return {"error": "bad_arguments", "message": "Нужен текст поиска"}
-        reply = self.api.get("/search", q=needle, limit=10)
+        reply = self.api.get("/search", q=needle, limit=10, mode="hybrid")
         if not reply.ok:
             return _failure(reply)
         found = reply.body
@@ -368,6 +368,7 @@ class Toolbox:
                 "title": item["title"],
                 "page": item["page"],
                 "text": item["snippet"],
+                "found_by": item.get("via", "text"),
             }
             for item in found["documents"]
         ]

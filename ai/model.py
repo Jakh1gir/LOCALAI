@@ -35,6 +35,7 @@ from typing import Any
 
 OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT = "ollama"  # Ollama, модель выбирается сама
+EMBED = "qwen3-embedding:0.6b"  # модель векторов: 0,6 ГБ, 100+ языков, на процессоре
 CHECK_EVERY = 10.0  # секунд кэшируется список установленных моделей
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 PROVIDERS = ("ollama", "openai", "none")
@@ -73,6 +74,7 @@ class Config:
     context: int = 32768
     temperature: float = 0.2
     api_key: str = ""
+    gpu: bool = True  # False — считать на процессоре (модель векторов не вытесняет модель чата)
 
     @classmethod
     def parse(cls, raw: Any) -> Config:
@@ -90,6 +92,8 @@ class Config:
             raise ValueError("Размышление: auto, off, on, low, medium, high")
         if not isinstance(config.context, int) or not CONTEXT[0] <= config.context <= CONTEXT[1]:
             raise ValueError(f"Окно контекста — от {CONTEXT[0]} до {CONTEXT[1]} токенов")
+        if not isinstance(config.gpu, bool):
+            raise TypeError("gpu — да или нет")
         if not isinstance(config.temperature, int | float) or not 0 <= config.temperature <= 2:
             raise ValueError("Температура — от 0 до 2")
         parts = urllib.parse.urlsplit(config.url)
@@ -132,6 +136,9 @@ class Model:
 
     def installed(self) -> list[dict[str, Any]]:
         return []
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        raise ModelError("Модель векторов не подключена")
 
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Iterator[Chunk]:
         raise ModelError("Модель не подключена")
@@ -271,6 +278,8 @@ class Ollama(_Http):
             "stream": True,
             "options": {"temperature": self.config.temperature, "num_ctx": self.config.context},
         }
+        if not self.config.gpu:
+            body["options"]["num_gpu"] = 0
         think = _think(self.config.think)
         if think is not None:
             body["think"] = think
@@ -297,6 +306,20 @@ class Ollama(_Http):
                     yield Chunk(message.get("content") or "", calls)
                 elif message.get("thinking"):
                     yield Chunk(thinking=True)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """Векторы текстов (``/api/embed``); ``gpu: false`` — на процессоре."""
+        name = self._resolve()
+        if name is None:
+            raise ModelError(f"Модель векторов «{self.name}» не установлена в Ollama")
+        body: dict[str, Any] = {"model": name, "input": texts, "truncate": True}
+        if not self.config.gpu:
+            body["options"] = {"num_gpu": 0}
+        with self._post("/api/embed", body, self.timeout) as response:
+            found = json.loads(response.read()).get("embeddings")
+        if not isinstance(found, list) or len(found) != len(texts):
+            raise ModelError("Модель векторов ответила не по протоколу")
+        return found
 
 
 class OpenAICompatible(_Http):
@@ -364,6 +387,17 @@ class OpenAICompatible(_Http):
         if pending:
             yield Chunk(calls=tuple(ToolCall(slot["name"], _arguments(slot["args"]), slot["id"])
                                     for _, slot in sorted(pending.items())))  # fmt: skip
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        name = self._resolve()
+        if name is None:
+            raise ModelError(f"Модель векторов «{self.name}» недоступна на {self.url}")
+        with self._post("/embeddings", {"model": name, "input": texts}, self.timeout) as response:
+            data = json.loads(response.read()).get("data") or []
+        found = [item.get("embedding") for item in sorted(data, key=lambda item: item["index"])]
+        if len(found) != len(texts):
+            raise ModelError("Модель векторов ответила не по протоколу")
+        return found
 
 
 # Выбор модели «сам» ---------------------------------------------------------------
