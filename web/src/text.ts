@@ -14,7 +14,7 @@ export const text = {
   backupsTitle: 'Резервные копии',
   search: 'Поиск и команды',
   searchShortcut: 'Ctrl K',
-  searchSections: 'Найти раздел',
+  searchSections: 'Найти раздел или текст документа',
   chat: 'Общий чат',
   find: {
     archived: 'В архиве',
@@ -26,7 +26,7 @@ export const text = {
     wrongDataset: 'Запись принадлежит другому реестру.',
     roles: { object: 'Объект', signal: 'Сигнал', route_start: 'Откуда', route_end: 'Куда', route_via: 'Через', related: 'Связано' } as Record<string, string>,
   },
-  noSections: 'Раздел не найден',
+  noSections: 'Ничего не найдено',
   close: 'Закрыть',
   tasks: 'Задачи',
   profile: 'Профиль',

@@ -5,6 +5,10 @@
   import Icon from './Icon.svelte';
   import Chat from './chat/Chat.svelte';
   import Unread from './chat/Unread.svelte';
+  import Documents from './documents/Documents.svelte';
+  import DocumentCard from './documents/Card.svelte';
+  import { documentUrl } from './documents/model.ts';
+  import { lookup } from './documents/search.svelte.ts';
   import Registry from './registry/Registry.svelte';
   import TargetView from './search/TargetView.svelte';
   import { searchTarget } from './search/target.ts';
@@ -25,6 +29,8 @@
   let query = $state(location.search);
   let target = $derived(searchTarget(pathname, query));
   let datasetId = $derived(new URLSearchParams(query).get('dataset') ?? '');
+  let docParams = $derived(new URLSearchParams(query));
+  let docId = $derived(docParams.get('document') ?? '');
   let draft = $state('');
   const readEvents = new EventTarget();
   let current = $derived(findSection(pathname));
@@ -54,6 +60,8 @@
     void events.listen(controller.signal);
     return () => controller.abort();
   });
+  const docSearch = lookup(() => sessionKey ? keywords : '');
+  let hits = $derived(docSearch.result?.documents ?? []);
   let visibleSections = $derived(sections.filter((item) =>
     (item.path !== '/imports' || canImport) &&
     (item.path !== '/chat' || canChat) && (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
@@ -179,7 +187,7 @@
   function followTarget(event: MouseEvent) {
     if (event.defaultPrevented || !(event.target instanceof Element)) return;
     const link = event.target.closest('a');
-    if (!link || link.target || link.origin !== location.origin || !searchTarget(link.pathname, link.search)) return;
+    if (!link || link.target || link.origin !== location.origin || (link.pathname !== '/documents' && !searchTarget(link.pathname, link.search))) return;
     follow(event, link.pathname + link.search);
   }
 
@@ -189,7 +197,19 @@
     searchInput?.focus();
   }
 
+  function openFirstResult(event: SubmitEvent) {
+    event.preventDefault();
+    const hit = hits[0];
+    if (hit) navigate(documentUrl(hit.document_id, hit.page));
+    else if (found[0]) navigate(found[0].path);
+  }
+
   function keyboard(event: KeyboardEvent) {
+    if (event.key === 'Escape' && dialog?.open) {
+      event.preventDefault();
+      dialog.close();
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
       openSearch();
@@ -280,6 +300,11 @@
       {#if current?.path === '/imports'}
         {#if canImport && me}{#key sessionKey + query}<Wizard {me} preferred={datasetId} />{/key}
         {:else}<p role="status">{text.accessDenied}</p>{/if}
+      {:else if current?.path === '/documents' && gate === 'ready' && me}
+        {#key sessionKey + query}
+          {#if docId}<DocumentCard id={docId} page={docParams.get('page') ?? ''} canAudit={canAdmin} />
+          {:else}<Documents canEdit={me.permissions.sections.includes('documents')} {navigate} />{/if}
+        {/key}
       {:else if current?.path === '/chat'}
         {#if canChat}{#key sessionKey}<Chat {canWrite} bind:draft onRead={() => readEvents.dispatchEvent(new Event('read'))} />{/key}
         {:else}<p role="status">{text.accessDenied}</p>{/if}
@@ -314,9 +339,15 @@
       <Icon name="close" />
     </button>
   </div>
-  <form onsubmit={(event) => { event.preventDefault(); if (found[0]) navigate(found[0].path); }}>
-    <input type="search" bind:this={searchInput} bind:value={keywords} aria-label={text.searchSections} placeholder={text.searchSections} />
+  <form onsubmit={openFirstResult}>
+    <input type="search" maxlength="200" bind:this={searchInput} bind:value={keywords} aria-label={text.searchSections} placeholder={text.searchSections} />
   </form>
+  {#if hits.length}
+    <h3>Документы</h3>
+    <ul class="search-results">{#each hits as hit}<li><a href={documentUrl(hit.document_id, hit.page)}>
+      <span><strong>{hit.title}</strong> · Стр. {hit.page}<br />{hit.snippet}</span></a></li>{/each}</ul>
+  {/if}
+  {#if docSearch.error}<p role="alert">{docSearch.error}</p>{/if}
   {#if found.length}
     <ul class="search-results">
       {#each found as item (item.path)}
@@ -327,7 +358,7 @@
         </li>
       {/each}
     </ul>
-  {:else}
+  {:else if !hits.length && docSearch.result}
     <p class="no-results" role="status">{text.noSections}</p>
   {/if}
 </dialog>

@@ -1,3 +1,4 @@
+import { documentMethods } from './documents.ts';
 import { importMethods } from './imports.ts';
 import type { ChatPage, EventPage, Message, ReadState, Revision } from '../chat/types.ts';
 import { text } from '../text.ts';
@@ -124,6 +125,7 @@ export type Options = {
   id?: string;
   name?: string;
   row?: number;
+  params?: Record<string, string>;
   file?: File;
   query?: Record<string, string | undefined>;
   body?: unknown;
@@ -138,7 +140,10 @@ export function createApiClient({
     const { method = 'GET', id, name, query, body, signal } = options;
     const target = id === undefined ? path : path.replace('{id}', encodeURIComponent(id));
     const resolved = name === undefined ? target : target.replace('{name}', encodeURIComponent(name));
-    const url = new URL(options.row === undefined ? resolved : resolved.replace('{row}', String(options.row)), baseUrl);
+    let route = options.row === undefined ? resolved : resolved.replace('{row}', String(options.row));
+    for (const [key, value] of Object.entries(options.params ?? {}))
+      route = route.replace('{' + key + '}', encodeURIComponent(value));
+    const url = new URL(route, baseUrl);
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, value);
     }
@@ -150,18 +155,20 @@ export function createApiClient({
     const session = path.startsWith('/api/v1/auth/');
     const backupWrite = method !== 'GET' && path.startsWith('/api/v1/backups');
     const importPost = method === 'POST' && path.startsWith('/api/v1/imports');
-    if (method !== 'GET' && !reads && !session && !backupWrite && !importPost) headers.set('Idempotency-Key', newKey());
+    const documentFile = !!options.file && path.startsWith('/api/v1/documents');
+    if (method !== 'GET' && !documentFile && !reads && !session && !backupWrite && !importPost) headers.set('Idempotency-Key', newKey());
     // Сессия живёт в cookie HttpOnly: скрипт страницы её не видит и не хранит.
     const outgoing = new Request(url, {
       method, headers, body: options.file ?? (body === undefined ? undefined : JSON.stringify(body)), signal,
       credentials: 'same-origin',
     });
     // Создание и восстановление копий сервер не повторяет по ключу.
-    return await send(outgoing, fetchRequest, !backupWrite && !importPost && path !== '/api/v1/events') as T;
+    return await send(outgoing, fetchRequest, !documentFile && !backupWrite && !importPost && path !== '/api/v1/events') as T;
   }
 
   return {
     imports: importMethods(request),
+    documents: documentMethods(request),
     health: (signal?: AbortSignal) =>
       request<Health>('/api/v1/system/health', { signal }),
     me: (signal?: AbortSignal) =>
