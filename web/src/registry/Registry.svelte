@@ -4,6 +4,7 @@
   import type { Dataset, Permissions } from '../api/types.ts';
   import { problemText } from '../admin/model.ts';
   import { events } from '../chat/events.ts';
+  import RegistryEntry from '../imports/RegistryEntry.svelte';
   import LiveRows from './LiveRows.svelte';
 
   let {
@@ -45,6 +46,7 @@
 <section class="access registry-live">
   <label
     >Реестр<select
+      aria-label="Реестр"
       value={datasetId}
       onchange={(e) =>
         navigate('/registries?' + new URLSearchParams({ dataset: e.currentTarget.value }))}
@@ -54,5 +56,12 @@
     </select></label
   >
   {#if problem}<p role="alert">{problem}</p>{/if}
-  {#if current}{#key current.id}<LiveRows dataset={current} {permissions} {navigate} />{/key}{/if}
+  {#if current}
+    {#key current.id}
+      <RegistryEntry dataset={current} {permissions} {navigate} />
+      {#if permissions.datasets['*']?.includes('view') || permissions.datasets[current.id]?.includes('view')}
+        <LiveRows dataset={current} {permissions} {navigate} />
+      {/if}
+    {/key}
+  {/if}
 </section>

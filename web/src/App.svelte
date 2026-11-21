@@ -12,6 +12,8 @@
   import Login from './Login.svelte';
   import PasswordChange from './PasswordChange.svelte';
   import Admin from './admin/Admin.svelte';
+  import Wizard from './imports/Wizard.svelte';
+  import { allowed } from './imports/model.ts';
   import Backups from './backups/Backups.svelte';
   import { showTime } from './admin/model.ts';
   import { findSection, homePath, sections } from './routes.ts';
@@ -40,6 +42,7 @@
   let setupRequired = $state(false);
   let notice = $state('');
   let adminDirty = $state(false);
+  let canImport = $derived(gate === 'ready' && !!me && allowed(me.permissions));
   let canAdmin = $derived(gate === 'ready' && me?.permissions.sections.includes('admin') === true);
   let canBackups = $derived(gate === 'ready' && me?.permissions.sections.includes('backups') === true);
   let canChat = $derived(gate === 'ready' && !!me?.permissions.sections.includes('chat'));
@@ -52,6 +55,7 @@
     return () => controller.abort();
   });
   let visibleSections = $derived(sections.filter((item) =>
+    (item.path !== '/imports' || canImport) &&
     (item.path !== '/chat' || canChat) && (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
   ));
   let found = $derived(visibleSections.filter((item) =>
@@ -273,7 +277,10 @@
 
     <main id="content" tabindex="-1" class="content" aria-labelledby="page-title">
       <h1 id="page-title" bind:this={heading} tabindex="-1">{title}</h1>
-      {#if current?.path === '/chat'}
+      {#if current?.path === '/imports'}
+        {#if canImport && me}{#key sessionKey + query}<Wizard {me} preferred={datasetId} />{/key}
+        {:else}<p role="status">{text.accessDenied}</p>{/if}
+      {:else if current?.path === '/chat'}
         {#if canChat}{#key sessionKey}<Chat {canWrite} bind:draft onRead={() => readEvents.dispatchEvent(new Event('read'))} />{/key}
         {:else}<p role="status">{text.accessDenied}</p>{/if}
       {:else if target && gate === 'ready'}
