@@ -1,0 +1,29 @@
+.registry-live > label {
+  max-width: 32rem;
+}
+.registry-tools {
+  align-items: end;
+  margin-block: var(--space-4);
+}
+.registry-live .tabulator {
+  border-color: var(--border);
+  background: var(--surface);
+  font: inherit;
+}
+.registry-live .tabulator :is(.tabulator-header, .tabulator-col) {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border-color: var(--border);
+}
+.registry-live .tabulator-row {
+  background: var(--surface);
+  color: var(--text);
+}
+.registry-live .tabulator-row.tabulator-selected {
+  background: var(--selection);
+  box-shadow: inset 3px 0 var(--accent-solid);
+}
+
+.registry-live .tabulator-tableholder {
+  overflow-anchor: none;
+}

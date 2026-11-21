@@ -236,6 +236,7 @@ async function newType(p: Page) {
   await apply(p);
   await p.getByRole('link', { name: 'Задвижки', exact: true }).click();
   await p.getByText('Записей · 2').waitFor();
+  await p.locator('.tabulator-row').filter({ hasText: 'З2' }).waitFor();
 }
 async function magnet(p: Page) {
   const file = workbook({
