@@ -1,3 +1,4 @@
+import { mockRecordEvents } from './events.ts';
 import type {
   Condition, CountQuery, RecordDoc, RecordQuery, RecordRow, Scalar, Sort,
 } from '../src/api/types.ts';
@@ -192,6 +193,7 @@ type Receipt = { fingerprint: string; row: RecordRow; status: number };
 
 export function createMockApi() {
   const rows = new Map(makeRows().map((row) => [row.id, row]));
+  const events = mockRecordEvents();
   const receipts = new Map<string, Receipt>();
   // Заглушка начинает с выполненным входом, чтобы экраны открывались сразу.
   // После выхода /auth/me отвечает 401, а вход принимает любой непустой пароль.
@@ -248,6 +250,7 @@ export function createMockApi() {
         : { ...record, doc, version: record.version + 1, updated_at: now }
       : { id: crypto.randomUUID(), dataset_id: dataset.id, doc, version: 1, archived_at: null, created_at: now, updated_at: now };
     rows.set(row.id, row);
+    if (row !== record) events.add(row.id, !record, now);
     const status = record ? 200 : 201;
     if (key) receipts.set(key, { fingerprint, row, status });
     return Response.json(row, { status });
@@ -259,6 +262,7 @@ export function createMockApi() {
     const { method } = request;
     if (url.pathname.startsWith('/api/v1/')) {
       if (method === 'GET' && url.pathname === '/api/v1/system/health') return Response.json(mockHealth);
+      if (group === 'events' && method === 'GET' && signedIn) return Response.json(await events.page(url.searchParams, request.signal));
       if (group === 'auth' && id && !child) return auth(request, id);
       if (method === 'GET' && url.pathname === '/api/v1/sites') return Response.json({ items: [site] });
       if (group === 'types' && method === 'GET' && !child) {

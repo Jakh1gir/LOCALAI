@@ -3,6 +3,12 @@
   import { api, sessionEvents } from './api/client.ts';
   import type { Me } from './api/types.ts';
   import Icon from './Icon.svelte';
+  import Chat from './chat/Chat.svelte';
+  import Unread from './chat/Unread.svelte';
+  import Registry from './registry/Registry.svelte';
+  import TargetView from './search/TargetView.svelte';
+  import { searchTarget } from './search/target.ts';
+  import { events } from './chat/events.ts';
   import Login from './Login.svelte';
   import PasswordChange from './PasswordChange.svelte';
   import Admin from './admin/Admin.svelte';
@@ -14,6 +20,11 @@
 
   const mockMode = import.meta.env.DEV && import.meta.env.MODE === 'development';
   let pathname = $state(location.pathname);
+  let query = $state(location.search);
+  let target = $derived(searchTarget(pathname, query));
+  let datasetId = $derived(new URLSearchParams(query).get('dataset') ?? '');
+  let draft = $state('');
+  const readEvents = new EventTarget();
   let current = $derived(findSection(pathname));
   let title = $derived(current?.title ?? text.notFound);
   let connection = $state<'pending' | 'ready' | 'error'>('pending');
@@ -31,8 +42,17 @@
   let adminDirty = $state(false);
   let canAdmin = $derived(gate === 'ready' && me?.permissions.sections.includes('admin') === true);
   let canBackups = $derived(gate === 'ready' && me?.permissions.sections.includes('backups') === true);
+  let canChat = $derived(gate === 'ready' && !!me?.permissions.sections.includes('chat'));
+  let canWrite = $derived(canChat && !!me?.permissions.sections.includes('chat_write'));
+  let sessionKey = $derived(gate === 'ready' && me ? JSON.stringify([me.user.id, me.permissions]) : '');
+  $effect(() => {
+    if (!sessionKey) return;
+    const controller = new AbortController();
+    void events.listen(controller.signal);
+    return () => controller.abort();
+  });
   let visibleSections = $derived(sections.filter((item) =>
-    (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
+    (item.path !== '/chat' || canChat) && (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
   ));
   let found = $derived(visibleSections.filter((item) =>
     item.title.toLocaleLowerCase('ru').includes(keywords.trim().toLocaleLowerCase('ru')),
@@ -83,6 +103,7 @@
 
   function signedIn(next: Me) {
     sessionLoad?.abort();
+    if (me?.user.id !== next.user.id || !next.permissions.sections.includes('chat_write')) draft = '';
     me = next;
     notice = '';
     gate = gateForMe(next);
@@ -129,19 +150,33 @@
   });
 
   function navigate(path: string) {
-    if (location.pathname === path) { dialog?.close(); return; }
+    if (location.pathname + location.search === path) { dialog?.close(); return; }
     if (adminDirty && !window.confirm(`${text.access.leaveTitle}. ${text.access.leaveHint}`)) return;
     adminDirty = false;
     dialog?.close();
-    if (location.pathname !== path) history.pushState(null, '', path);
+    history.pushState(null, '', path);
     pathname = location.pathname;
+    query = location.search;
     void tick().then(() => heading?.focus());
+  }
+
+  function share(id: string) {
+    if (!canWrite) return;
+    draft += (draft ? ' ' : '') + '[[record:' + id + ']]';
+    navigate('/chat');
   }
 
   function follow(event: MouseEvent, path: string) {
     if (event.button || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     event.preventDefault();
     navigate(path);
+  }
+
+  function followTarget(event: MouseEvent) {
+    if (event.defaultPrevented || !(event.target instanceof Element)) return;
+    const link = event.target.closest('a');
+    if (!link || link.target || link.origin !== location.origin || !searchTarget(link.pathname, link.search)) return;
+    follow(event, link.pathname + link.search);
   }
 
   function openSearch() {
@@ -158,16 +193,17 @@
   }
 </script>
 
-<svelte:window onkeydown={keyboard} onfocus={() => { if (gate === 'ready') void loadSession(); }}
+<svelte:window onclick={followTarget} onkeydown={keyboard} onfocus={() => { if (gate === 'ready') void loadSession(); }}
   onbeforeunload={(event) => { if (adminDirty) { event.preventDefault(); event.returnValue = ''; } }}
   onpopstate={() => {
-    if (pathname === location.pathname) return;
+    if (pathname === location.pathname && query === location.search) return;
     if (adminDirty && !window.confirm(`${text.access.leaveTitle}. ${text.access.leaveHint}`)) {
-      history.pushState(null, '', pathname);
+      history.pushState(null, '', pathname + query);
       return;
     }
     adminDirty = false;
     pathname = location.pathname;
+    query = location.search;
   }} />
 
 {#if gate === 'checking'}
@@ -194,6 +230,7 @@
         >
           <Icon name={item.icon} size={18} />
           <span>{item.title}</span>
+          {#if item.path === '/chat'}{#key sessionKey}<Unread {readEvents} />{/key}{/if}
         </a>
       {/each}
     </nav>
@@ -236,7 +273,14 @@
 
     <main id="content" tabindex="-1" class="content" aria-labelledby="page-title">
       <h1 id="page-title" bind:this={heading} tabindex="-1">{title}</h1>
-      {#if current?.path === '/admin'}
+      {#if current?.path === '/chat'}
+        {#if canChat}{#key sessionKey}<Chat {canWrite} bind:draft onRead={() => readEvents.dispatchEvent(new Event('read'))} />{/key}
+        {:else}<p role="status">{text.accessDenied}</p>{/if}
+      {:else if target && gate === 'ready'}
+        {#key sessionKey + pathname + query}<TargetView {target} share={canWrite ? share : undefined} />{/key}
+      {:else if current?.path === '/registries' && gate === 'ready' && me}
+        {#key sessionKey}<Registry {datasetId} permissions={me.permissions} {navigate} />{/key}
+      {:else if current?.path === '/admin'}
         {#if canAdmin && me}<Admin {me} onChanged={loadSession} onDirty={(value) => { adminDirty = value; }} />
         {:else}<p role="status">{text.accessDenied}</p>{/if}
       {:else if current?.path === '/backups'}

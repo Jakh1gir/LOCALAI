@@ -27,11 +27,13 @@ export function mockApiPlugin(): Plugin {
         if (path !== '/api/v1' && !path.startsWith('/api/v1/')) return next();
         let response: Response;
         try {
+          const controller = new AbortController();
+          outgoing.once('close', () => controller.abort());
           const body = await readBody(incoming);
           response = await handle(new Request(new URL(path, 'http://localhost'), {
             method: incoming.method,
             headers: incoming.headers as Record<string, string>,
-            body,
+            body, signal: controller.signal,
           }));
         } catch (error) {
           if (error instanceof RangeError) {
