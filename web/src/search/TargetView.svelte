@@ -3,6 +3,7 @@
   import { api } from '../api/client.ts';
   import type { Dataset, KksCard, RecordDetail, Scalar, TypeField } from '../api/types.ts';
   import { text } from '../text.ts';
+  import { proposeUrl } from '../knowledge/model.ts';
   import type { SearchTarget } from './target.ts';
   import '../admin/admin.css';
   import '../chat/chat.css';
@@ -68,6 +69,7 @@
   class="access target-view"
   aria-label={target.kind === 'kks' ? text.find.card : text.find.inspector}
 >
+  {#if card || record}<a class="knowledge-action" href={proposeUrl(target.kind,target.id)}>Предложить заметку</a>{/if}
   {#if loading}<p role="status">{text.access.loading}</p>
   {:else if problem}<p class="form-error" role="alert">{problem}</p>
   {:else if card}

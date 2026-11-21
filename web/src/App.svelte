@@ -3,6 +3,10 @@
   import { api, sessionEvents } from './api/client.ts';
   import type { Me } from './api/types.ts';
   import Icon from './Icon.svelte';
+  import Knowledge from './knowledge/Knowledge.svelte';
+  import DocumentAction from './knowledge/DocumentAction.svelte';
+  import { observe, type Queue } from './knowledge/model.ts';
+  import { knowledgeSearch } from './knowledge/find.svelte.ts';
   import Chat from './chat/Chat.svelte';
   import Unread from './chat/Unread.svelte';
   import Registry from './registry/Registry.svelte';
@@ -58,13 +62,35 @@
     (item.path !== '/imports' || canImport) &&
     (item.path !== '/chat' || canChat) && (item.path !== '/admin' || canAdmin) && (item.path !== '/backups' || canBackups),
   ));
-  let found = $derived(visibleSections.filter((item) =>
+  let commands = $derived(visibleSections.filter((item) =>
     item.title.toLocaleLowerCase('ru').includes(keywords.trim().toLocaleLowerCase('ru')),
   ));
 
   $effect(() => {
     document.title = `${title} · ${text.app}`;
   });
+
+  let canReview = $derived(gate === 'ready' && !!me?.permissions.sections.includes('knowledge'));
+  let reviewQueue = $state<Queue | null>(null);
+  let reviewError = $state('');
+  let documentContext = $derived(new URLSearchParams(query));
+  const noteSearch = knowledgeSearch(() => sessionKey ? keywords : '');
+  $effect(() => {
+    const key = sessionKey;
+    reviewQueue = null;
+    reviewError = '';
+    if (key && canReview) return observe('knowledge_note', api.knowledge.queue,
+      result => { reviewQueue = result; reviewError = ''; },
+      message => { reviewQueue = null; reviewError = message; });
+  });
+
+  let found = $derived([
+    ...noteSearch.groups.flatMap(group => group.items.map((item, i) => ({
+      path: item.href, title: item.title, detail: item.detail, heading: i === 0 ? group.title : '',
+      icon: 'knowledge' as const,
+    }))),
+    ...commands.map(item => ({ ...item, detail: '', heading: '' })),
+  ]);
 
   async function checkConnection() {
     load?.abort();
@@ -234,6 +260,9 @@
         >
           <Icon name={item.icon} size={18} />
           <span>{item.title}</span>
+          {#if item.path === '/knowledge' && canReview && reviewQueue?.items.length}
+            <span class="chat-badge" aria-label={'В очереди проверки: ' + reviewQueue.items.length}>{reviewQueue.items.length}{reviewQueue.more ? '+' : ''}</span>
+          {/if}
           {#if item.path === '/chat'}{#key sessionKey}<Unread {readEvents} />{/key}{/if}
         </a>
       {/each}
@@ -290,6 +319,8 @@
       {:else if current?.path === '/admin'}
         {#if canAdmin && me}<Admin {me} onChanged={loadSession} onDirty={(value) => { adminDirty = value; }} />
         {:else}<p role="status">{text.accessDenied}</p>{/if}
+      {:else if current?.path === '/knowledge' && me && gate === 'ready'}
+        {#key sessionKey + query}<Knowledge {query} manage={canReview} user={me.user.name} queue={reviewQueue} queueError={reviewError} {navigate} />{/key}
       {:else if current?.path === '/backups'}
         {#if canBackups}<Backups onRestored={restored} />
         {:else}<p role="status">{text.accessDenied}</p>{/if}
@@ -302,6 +333,9 @@
           <a href={homePath} onclick={(event) => follow(event, homePath)}>{text.backToRegistry}</a>
         {/if}
       </div>
+      {/if}
+      {#if current?.path === '/documents' && gate === 'ready' && documentContext.get('document')}
+        {#key sessionKey + query}<DocumentAction id={documentContext.get('document')!} page={documentContext.get('page') ?? undefined} />{/key}
       {/if}
     </main>
   </div>
@@ -320,9 +354,10 @@
   {#if found.length}
     <ul class="search-results">
       {#each found as item (item.path)}
+        {#if item.heading}<li><h3>{item.heading}</h3></li>{/if}
         <li>
           <a href={item.path} onclick={(event) => follow(event, item.path)}>
-            <Icon name={item.icon} size={18} />{item.title}
+            <Icon name={item.icon} size={18} /><span>{item.title}{#if item.detail}<br />{item.detail}{/if}</span>
           </a>
         </li>
       {/each}
@@ -330,5 +365,7 @@
   {:else}
     <p class="no-results" role="status">{text.noSections}</p>
   {/if}
+  {#if !keywords}<p class="no-results">По местному обозначению можно найти официальный ККС в словаре станции.</p>{/if}
+  {#if noteSearch.error}<p role="alert">{noteSearch.error}</p>{/if}
 </dialog>
 {/if}

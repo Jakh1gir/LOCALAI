@@ -1,5 +1,6 @@
 import { importMethods } from './imports.ts';
 import type { ChatPage, EventPage, Message, ReadState, Revision } from '../chat/types.ts';
+import { knowledgeMethods } from './knowledge.ts';
 import { text } from '../text.ts';
 import type { paths } from './contract.d.ts';
 import type {
@@ -168,6 +169,7 @@ export function createApiClient({
       request<Me>('/api/v1/auth/me', { signal }),
     login: (login: string, password: string, signal?: AbortSignal) =>
       request<Me>('/api/v1/auth/login', { method: 'POST', body: { login, password }, signal }),
+    knowledge: knowledgeMethods(request),
     logout: (signal?: AbortSignal) =>
       request<undefined>('/api/v1/auth/logout', { method: 'POST', signal }),
     changePassword: (currentPassword: string, newPassword: string, signal?: AbortSignal) =>
