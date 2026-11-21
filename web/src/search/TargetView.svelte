@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Related from '../documents/Related.svelte';
   import { onMount } from 'svelte';
   import { api } from '../api/client.ts';
   import type { Dataset, KksCard, RecordDetail, Scalar, TypeField } from '../api/types.ts';
@@ -125,4 +126,5 @@
       </table>
     </div>
   {/if}
+  {#if card || record}<Related kind={target.kind} id={target.id} />{/if}
 </section>
