@@ -1,0 +1,13 @@
+<service>
+  <id>LocalAIVision</id>
+  <name>LOCALAI — чтение документов</name>
+  <description>Читает PDF, изображения и DXF из очереди LOCALAI.</description>
+  <executable>python.exe</executable>
+  <workingdirectory>.</workingdirectory>
+  <arguments>-m vision</arguments>
+  <logpath>.</logpath>
+  <log mode="roll"/>
+  <startmode>Automatic</startmode>
+  <serviceaccount><domain>NT AUTHORITY</domain><user>LocalService</user></serviceaccount>
+  <onfailure action="restart" delay="10 sec"/>
+</service>
